@@ -16,5 +16,8 @@ torch>=2.0.0
 # Audio processing
 librosa>=0.10.0
 
+# Web app
+flask>=3.0.0
+
 # Utilities
 tqdm>=4.65.0
