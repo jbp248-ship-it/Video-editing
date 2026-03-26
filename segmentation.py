@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from config import PipelineConfig
+from ffmpeg_utils import get_ffmpeg, get_ffprobe, probe_duration
 
 logger = logging.getLogger(__name__)
 
@@ -107,14 +108,10 @@ def _fallback_segments(audio_path: str) -> list[TranscriptSegment]:
     based on audio energy — detect speech vs silence boundaries.
     Captions won't be available but segmentation still works.
     """
-    import subprocess
-    cmd = [
-        "ffprobe", "-v", "quiet",
-        "-show_entries", "format=duration",
-        "-of", "csv=p=0", audio_path,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    total_duration = float(result.stdout.strip()) if result.stdout.strip() else 240.0
+    try:
+        total_duration = probe_duration(audio_path)
+    except Exception:
+        total_duration = 240.0
 
     # Create placeholder segments every ~10 seconds (sentence-length chunks)
     segments = []
@@ -170,7 +167,7 @@ def analyze_audio_energy(audio_path: str, window_size: float = 0.5) -> tuple[np.
     """
     # Read raw audio samples using ffmpeg
     cmd = [
-        "ffmpeg", "-y", "-i", audio_path,
+        get_ffmpeg(), "-y", "-i", audio_path,
         "-f", "s16le", "-acodec", "pcm_s16le",
         "-ar", "16000", "-ac", "1",
         "-"

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from config import PipelineConfig
+from ffmpeg_utils import get_ffmpeg, get_ffprobe, probe_video_full
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +38,7 @@ class VideoMetadata:
 
 def probe_video(video_path: str) -> dict:
     """Run ffprobe and return parsed JSON metadata."""
-    cmd = [
-        "ffprobe", "-v", "quiet",
-        "-print_format", "json",
-        "-show_format", "-show_streams",
-        video_path
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return json.loads(result.stdout)
+    return probe_video_full(video_path)
 
 
 def extract_metadata(video_path: str) -> VideoMetadata:
@@ -93,7 +87,7 @@ def extract_audio(video_path: str, output_path: str, sample_rate: int = 16000) -
     Returns path to the extracted audio file.
     """
     cmd = [
-        "ffmpeg", "-y", "-i", video_path,
+        get_ffmpeg(), "-y", "-i", video_path,
         "-vn",                          # No video
         "-acodec", "pcm_s16le",         # 16-bit PCM
         "-ar", str(sample_rate),        # Whisper expects 16kHz

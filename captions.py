@@ -175,8 +175,9 @@ def build_caption_filter(
     This creates a series of drawtext filters, one per caption line,
     each with enable='between(t,start,end)' to show at the right time.
     """
+    from rendering import _get_default_font
     filters = []
-    font = config.font_path or "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    font = config.font_path or _get_default_font()
 
     for line in lines:
         # Escape special characters for ffmpeg

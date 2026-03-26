@@ -10,10 +10,12 @@ Handles:
 """
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 
 from config import PipelineConfig
+from ffmpeg_utils import get_ffmpeg
 
 logger = logging.getLogger(__name__)
 
@@ -127,10 +129,34 @@ def build_reframe_filter(
             return f"scale={scale_w}:{scale_h},pad={out_width}:{out_height}:0:{pad_y}:black"
 
 
+def _get_default_font() -> str:
+    """Find a usable font on any OS."""
+    import sys
+    candidates = []
+    if sys.platform == "win32":
+        windir = os.environ.get("WINDIR", r"C:\Windows")
+        candidates = [
+            os.path.join(windir, "Fonts", "arialbd.ttf"),
+            os.path.join(windir, "Fonts", "arial.ttf"),
+            os.path.join(windir, "Fonts", "segoeui.ttf"),
+        ]
+    else:
+        candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        ]
+    for f in candidates:
+        if os.path.isfile(f):
+            # ffmpeg on Windows needs forward slashes and escaped colons
+            return f.replace("\\", "/").replace("C:/", "C\\\\:/")
+    return "Arial"  # ffmpeg can sometimes find system fonts by name
+
+
 def build_header_filter(header_text: str, config: PipelineConfig) -> str:
     """Build ffmpeg drawtext filter for the header overlay with background box."""
     hdr = config.header
-    font = hdr.font_path or "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    font = hdr.font_path or _get_default_font()
 
     # Escape for ffmpeg
     escaped = header_text.replace("\\", "\\\\").replace("'", "'\\''").replace(":", "\\:").replace("%", "%%")
@@ -188,7 +214,7 @@ def render_clip(
 
     # Build ffmpeg command
     cmd = [
-        "ffmpeg", "-y",
+        get_ffmpeg(), "-y",
         "-ss", f"{clip_start:.3f}",
         "-i", source_video,
         "-t", f"{duration:.3f}",
