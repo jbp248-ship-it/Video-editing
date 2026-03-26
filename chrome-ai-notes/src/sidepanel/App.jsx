@@ -34,9 +34,12 @@ export default function App() {
     refreshNotes(notesPage + 1);
   }, [notesPage, refreshNotes]);
 
-  // Load notes on mount and when returning to home
+  // Load notes on mount and when returning to home; clear stale errors
   useEffect(() => {
-    if (view === "home") refreshNotes(0);
+    if (view === "home") {
+      refreshNotes(0);
+      setError(null);
+    }
   }, [view, refreshNotes]);
 
   // Ask the service worker for current model status on mount

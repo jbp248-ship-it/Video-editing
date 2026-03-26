@@ -190,8 +190,15 @@ async function handleStartRecording() {
   const { signal } = startAbort;
 
   try {
-    // 1. Get active tab (for metadata only — not for tab capture)
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    // 1. Get active tab info (metadata only — recording uses microphone, not tab audio)
+    //    This is best-effort: if the page blocks tab info, we still record fine.
+    let tab = null;
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      tab = tabs?.[0] || null;
+    } catch {
+      // Tab info unavailable — that's OK for microphone recording
+    }
     recordingTabId = tab?.id || null;
 
     if (signal.aborted) throw new Error("Recording start was cancelled");
