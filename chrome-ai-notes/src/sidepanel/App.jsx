@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { getAllNotes } from "../storage/db.js";
+import { getNotesPage } from "../storage/db.js";
 import LiveTranscript from "./LiveTranscript.jsx";
 import NotesList from "./NotesList.jsx";
 import NoteDetail from "./NoteDetail.jsx";
@@ -11,6 +11,8 @@ import NoteDetail from "./NoteDetail.jsx";
 export default function App() {
   const [view, setView] = useState("home");
   const [notes, setNotes] = useState([]);
+  const [hasMoreNotes, setHasMoreNotes] = useState(false);
+  const [notesPage, setNotesPage] = useState(0);
   const [activeNoteId, setActiveNoteId] = useState(null);
   const [modelStatus, setModelStatus] = useState("idle");
   const [modelProgress, setModelProgress] = useState(0);
@@ -18,15 +20,23 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState(null);
 
-  const refreshNotes = useCallback(() => {
-    getAllNotes()
-      .then(setNotes)
+  const refreshNotes = useCallback((page = 0) => {
+    getNotesPage(page)
+      .then(({ notes: fetched, hasMore }) => {
+        setNotes(page === 0 ? fetched : (prev) => [...prev, ...fetched]);
+        setHasMoreNotes(hasMore);
+        setNotesPage(page);
+      })
       .catch((err) => console.error("[UI] Failed to load notes:", err));
   }, []);
 
+  const loadMoreNotes = useCallback(() => {
+    refreshNotes(notesPage + 1);
+  }, [notesPage, refreshNotes]);
+
   // Load notes on mount and when returning to home
   useEffect(() => {
-    if (view === "home") refreshNotes();
+    if (view === "home") refreshNotes(0);
   }, [view, refreshNotes]);
 
   // Ask the service worker for current model status on mount
@@ -140,7 +150,13 @@ export default function App() {
                   : "Start Recording"}
               </button>
             </div>
-            <NotesList notes={notes} onOpen={openNote} onRefresh={refreshNotes} />
+            <NotesList
+              notes={notes}
+              hasMore={hasMoreNotes}
+              onOpen={openNote}
+              onRefresh={() => refreshNotes(0)}
+              onLoadMore={loadMoreNotes}
+            />
           </>
         )}
 

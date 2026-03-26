@@ -197,6 +197,13 @@ body {
   padding: 40px 16px;
 }
 
+.load-more {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  text-align: center;
+}
+
 /* ── Live transcript ── */
 .live-header {
   display: flex;

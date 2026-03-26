@@ -198,13 +198,13 @@ async function handleStartRecording() {
     // Check if aborted between steps
     if (signal.aborted) throw new Error("Recording start was cancelled");
 
-    // 2. Load model if needed
+    // 2. Load model if needed — pass AbortSignal so Stop cancels the load
     if (!isModelReady()) {
       const ms = getModelState();
       if (ms.state === "error") resetModel();
       await loadWhisper((p) => {
         broadcast({ type: "model-status", status: p.status, progress: p.progress });
-      });
+      }, { signal });
     }
 
     if (signal.aborted) throw new Error("Recording start was cancelled");
@@ -280,23 +280,29 @@ function handleStopRecording(reason = "user-requested") {
 
 function onCaptureStopped() {
   const wasActive = recordingState === "recording" || recordingState === "stopping";
+  const stoppedNoteId = currentNoteId;
   recordingState = "idle";
   stopHeartbeat();
   startAbort = null;
 
-  if (wasActive && currentNoteId) {
+  if (wasActive && stoppedNoteId) {
     const durationSec = Math.round((Date.now() - recordingStartTime) / 1000);
-    updateNote(currentNoteId, { duration: durationSec, status: "complete" })
+    updateNote(stoppedNoteId, { duration: durationSec, status: "complete" })
       .catch(console.error);
   }
 
   recordingTabId = null;
-  broadcast({ type: "recording-stopped", noteId: currentNoteId });
+  // Clear currentNoteId AFTER capturing it for the drain session.
+  // This prevents a new recording's chunks from being appended to the old note.
+  const noteForDrain = currentNoteId;
+  currentNoteId = null;
+  broadcast({ type: "recording-stopped", noteId: stoppedNoteId });
 
-  // If there are queued chunks, let drainQueue finish processing them.
-  // It will call finalizeDrain() when done.
+  // If there are queued chunks from this session, drain them.
+  // We pass the pinned noteId so drainQueue writes to the correct note
+  // even if a new recording starts before the drain finishes.
   if (!inferenceRunning && inferenceQueue.length > 0) {
-    drainQueue();
+    drainQueue(noteForDrain);
   }
 }
 
@@ -342,26 +348,31 @@ function handleAudioChunk(audioData, chunkIndex) {
     broadcast({ type: "queue-warning", depth: inferenceQueue.length });
   }
 
-  inferenceQueue.push({ audio, offsetSec });
+  inferenceQueue.push({ audio, offsetSec, noteId: currentNoteId });
 
   if (!inferenceRunning) {
     drainQueue();
   }
 }
 
-async function drainQueue() {
+/**
+ * Process queued audio chunks sequentially.
+ * Each chunk carries its own noteId so that:
+ *   1. Chunks from recording #1 don't leak into recording #2
+ *   2. Post-stop drain writes to the correct (now-completed) note
+ *
+ * @param {number} [pinnedNoteId] - Override noteId for post-stop drain
+ */
+async function drainQueue(pinnedNoteId) {
   inferenceRunning = true;
 
   while (inferenceQueue.length > 0) {
-    const { audio, offsetSec } = inferenceQueue.shift();
+    const { audio, offsetSec, noteId: chunkNoteId } = inferenceQueue.shift();
+    const targetNoteId = pinnedNoteId || chunkNoteId;
 
-    // Verify the note we're appending to still exists and isn't in error state.
-    // This handles the case where recording was stopped or the note was deleted
-    // while chunks were queued.
-    if (!currentNoteId) {
-      console.warn("[SW] No active note — discarding remaining queue.");
-      inferenceQueue.length = 0;
-      break;
+    if (!targetNoteId) {
+      console.warn("[SW] Chunk has no noteId — discarding.");
+      continue;
     }
 
     try {
@@ -373,11 +384,11 @@ async function drainQueue() {
           offsetSec: offsetSec + (c.timestamp?.[0] || 0),
         }));
 
-        await appendTranscript(currentNoteId, text, taggedChunks);
+        await appendTranscript(targetNoteId, text, taggedChunks);
 
         broadcast({
           type: "transcript-chunk",
-          noteId: currentNoteId,
+          noteId: targetNoteId,
           text,
           offsetSec,
           queueDepth: inferenceQueue.length,

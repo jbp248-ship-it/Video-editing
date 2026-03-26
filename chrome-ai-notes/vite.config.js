@@ -4,18 +4,20 @@ import { viteStaticCopy } from "vite-plugin-static-copy";
 import { resolve } from "path";
 
 /**
- * Chrome Extension Vite Build
+ * Chrome Extension Build — Multi-output strategy
  *
- * Key decisions:
- *   1. Service worker + offscreen + worklet are each their own Rollup input
- *      so Vite treats them as separate entry bundles.
- *   2. `inlineDynamicImports` is NOT used (it's incompatible with multiple
- *      inputs). Instead, we use `output.manualChunks` returning undefined
- *      to signal "inline everything into the entry" for non-sidepanel entries.
- *   3. The AudioWorklet must remain a single standalone file (no imports).
- *   4. The offscreen HTML is copied as a static asset; its JS is bundled
- *      as a separate entry. This avoids Vite trying to parse it as an
- *      HTML entry with module resolution issues.
+ * Why not @crxjs/vite-plugin?
+ *   CRXJS v2 beta has known issues with Vite 5 + MV3 service workers that
+ *   import large libraries (@xenova/transformers). Until v2 is stable, we
+ *   use a manual multi-output approach that's more predictable.
+ *
+ * Strategy:
+ *   - `manualChunks` forces all shared code into the "sidepanel" chunk.
+ *     The SW and offscreen entries get everything inlined because they
+ *     never share a chunk with sidepanel.
+ *   - `preserveEntrySignatures: "exports-only"` ensures each entry is
+ *     self-contained with its deps inlined.
+ *   - AudioWorklet stays a standalone file (no module imports possible).
  */
 export default defineConfig({
   plugins: [
@@ -26,9 +28,7 @@ export default defineConfig({
         { src: "manifest.json", dest: "." },
         { src: "icons/*.png", dest: "icons" },
         { src: "src/offscreen/offscreen.html", dest: "." },
-        // Whisper ONNX model + tokenizer files
         { src: "models/**/*", dest: "models" },
-        // WASM backend for @xenova/transformers
         { src: "node_modules/@xenova/transformers/dist/*.wasm", dest: "wasm" },
       ],
     }),
@@ -37,44 +37,37 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
-    // Increase chunk size warning threshold — ONNX models are large
     chunkSizeWarningLimit: 5000,
+    target: "esnext",
 
     rollupOptions: {
       input: {
-        // React side panel — the only entry that can have chunks
         sidepanel: resolve(__dirname, "sidepanel.html"),
-
-        // Service worker — must be ONE self-contained file.
-        // Chrome MV3 service workers resolve `import` relative to the
-        // extension root, but Vite's chunk filenames are unpredictable.
-        // We force all deps to be inlined via manualChunks below.
         background: resolve(__dirname, "src/background/service-worker.js"),
-
-        // Offscreen JS — also must be self-contained since its HTML
-        // is a static copy with a bare <script src="offscreen.js">.
         offscreen: resolve(__dirname, "src/offscreen/offscreen.js"),
-
-        // AudioWorklet — runs in a locked-down scope, CANNOT import.
-        // Must stay a single plain JS file with no module syntax.
         "audio-processor": resolve(__dirname, "src/audio/audio-processor.js"),
       },
 
       output: {
+        // Ensure each entry is fully self-contained
+        preserveEntrySignatures: "exports-only",
+
         entryFileNames: (chunkInfo) => {
-          // Side panel entry can be hashed (loaded by sidepanel.html)
           if (chunkInfo.name === "sidepanel") return "assets/[name]-[hash].js";
-          // Everything else: predictable names at the dist root
           return "[name].js";
         },
 
-        // Force all shared code to be inlined into each entry point.
-        // This prevents Vite from creating chunk-XXXX.js files that the
-        // service worker and offscreen doc can't resolve.
-        manualChunks: (id, { getModuleInfo }) => {
-          // Let sidepanel have its own chunks (React, idb, etc.)
-          // But never split anything into a chunk that the SW or
-          // offscreen might need — just inline everything.
+        // Shared code only goes into sidepanel chunks.
+        // background and offscreen get everything inlined because
+        // they are never referenced by a chunk name here.
+        manualChunks: (id) => {
+          // React, idb, and other libs used by sidepanel can be chunked
+          if (id.includes("node_modules/react") ||
+              id.includes("node_modules/react-dom") ||
+              id.includes("node_modules/idb")) {
+            return "vendor";
+          }
+          // Everything else: let Rollup inline into the importing entry
           return undefined;
         },
       },

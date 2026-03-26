@@ -201,12 +201,6 @@ export async function getNotesPage(page = 0, pageSize = NOTES_PAGE_SIZE) {
   return { notes, hasMore };
 }
 
-export async function getAllNotes() {
-  const db = await getDB();
-  const all = await db.getAllFromIndex("notes", "by-date");
-  return all.reverse();
-}
-
 export async function getNotesByUrl(url) {
   const db = await getDB();
   return db.getAllFromIndex("notes", "by-url", url);
