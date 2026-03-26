@@ -8,7 +8,8 @@
     "tabCapture",
     "storage",
     "unlimitedStorage",
-    "offscreen"
+    "offscreen",
+    "alarms"
   ],
   "background": {
     "service_worker": "src/background/service-worker.js",

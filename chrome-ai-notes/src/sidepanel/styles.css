@@ -282,6 +282,16 @@ body {
   margin-bottom: 16px;
 }
 
+.timestamp {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 11px;
+  color: #6366f1;
+  background: #eef2ff;
+  padding: 1px 4px;
+  border-radius: 3px;
+  user-select: none;
+}
+
 .loading {
   text-align: center;
   color: #9ca3af;
