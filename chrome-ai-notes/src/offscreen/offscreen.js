@@ -1,23 +1,27 @@
 /**
  * Offscreen document — bridges chrome.tabCapture → AudioWorklet → Service Worker.
  *
- * Robustness features:
- *   - MediaStream.onended / oninactive detection (tab close, navigation)
- *   - Race-safe flush: defers teardown until worklet flush completes
- *   - All chrome.runtime.sendMessage calls wrapped with .catch()
- *   - Guard against messages arriving after teardown
- *   - AudioContext creation failure handling
+ * Fixes from code review:
+ *   - Zero-copy: sends Float32Array directly (structured clone), not Array.from()
+ *   - Race-safe flush: tracks a flushGeneration to prevent stale timeout teardowns
+ *   - MediaStream.onended / oninactive for stream death detection
+ *   - Guards against samples arriving after teardown
+ *   - All chrome.runtime.sendMessage wrapped with .catch()
  */
 
-import { ONE_SECOND_FRAMES, TARGET_SAMPLE_RATE } from "../utils/constants.js";
+const TARGET_SR = 16000;
+const ONE_SECOND_FRAMES = TARGET_SR;
 
 // ── State ──
 let audioContext = null;
 let mediaStream = null;
 let sourceNode = null;
 let workletNode = null;
-let capturing = false; // true while audio graph is active
-let flushing = false;  // true during the flush → teardown sequence
+let capturing = false;
+let flushing = false;
+// Incremented every time initiateStop is called. The flush timeout checks
+// this to avoid tearing down a NEW session that started during the window.
+let flushGeneration = 0;
 
 // ── 1-Second Chunker ──
 let chunkBuffer = new Float32Array(ONE_SECOND_FRAMES);
@@ -31,7 +35,6 @@ function resetChunker() {
 }
 
 function onWorkletSamples(samples) {
-  // Guard: ignore samples after teardown started
   if (!capturing && !flushing) return;
 
   let srcOffset = 0;
@@ -51,10 +54,17 @@ function onWorkletSamples(samples) {
   }
 }
 
+/**
+ * Ship a 1-second chunk to the service worker.
+ * Sends Float32Array directly — structured clone handles typed arrays
+ * efficiently without boxing into Number objects. This eliminates the
+ * ~690MB of GC pressure over a 90-minute lecture that Array.from() caused.
+ */
 function shipChunk() {
+  // .slice() creates a copy since chunkBuffer is reused
   safeSend({
     type: "audio-chunk",
-    audio: Array.from(chunkBuffer),
+    audio: chunkBuffer.slice(0, ONE_SECOND_FRAMES),
     chunkIndex: chunkIndex++,
   });
   chunkWriteIdx = 0;
@@ -64,7 +74,7 @@ function flushChunker() {
   if (chunkWriteIdx > 0) {
     safeSend({
       type: "audio-chunk",
-      audio: Array.from(chunkBuffer.subarray(0, chunkWriteIdx)),
+      audio: chunkBuffer.slice(0, chunkWriteIdx),
       chunkIndex: chunkIndex++,
     });
     chunkWriteIdx = 0;
@@ -95,12 +105,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 async function startCapture(streamId) {
   // Tear down any previous session
-  if (capturing) {
+  if (capturing || flushing) {
     teardown();
+    flushing = false;
   }
 
   resetChunker();
-  flushing = false;
 
   // 1. Obtain the tab's media stream
   try {
@@ -116,10 +126,10 @@ async function startCapture(streamId) {
     throw new Error(`Failed to get media stream: ${err.message}`);
   }
 
-  // 2. Detect stream death (tab closed, navigated away, etc.)
+  // 2. Detect stream death (tab closed, navigated away)
   for (const track of mediaStream.getAudioTracks()) {
     track.onended = () => {
-      console.warn("[Offscreen] Audio track ended (tab closed or navigated).");
+      console.warn("[Offscreen] Audio track ended.");
       initiateStop("stream-ended");
     };
   }
@@ -139,8 +149,9 @@ async function startCapture(streamId) {
   const hardwareSR = audioContext.sampleRate;
 
   // 4. Load AudioWorklet
+  // After build, the worklet lives at dist/audio-processor.js (flat)
   try {
-    const workletUrl = chrome.runtime.getURL("src/audio/audio-processor.js");
+    const workletUrl = chrome.runtime.getURL("audio-processor.js");
     await audioContext.audioWorklet.addModule(workletUrl);
   } catch (err) {
     teardown();
@@ -151,17 +162,13 @@ async function startCapture(streamId) {
   sourceNode = audioContext.createMediaStreamSource(mediaStream);
   workletNode = new AudioWorkletNode(audioContext, "audio-capture-processor");
 
-  workletNode.port.postMessage({
-    type: "configure",
-    sampleRate: hardwareSR,
-  });
+  workletNode.port.postMessage({ type: "configure", sampleRate: hardwareSR });
 
   workletNode.port.onmessage = (e) => {
     const { type, buffer } = e.data;
     if (type === "samples") {
       onWorkletSamples(buffer);
     } else if (type === "flushed") {
-      // Worklet flush complete → flush our chunker → signal SW → teardown
       flushChunker();
       safeSend({ type: "capture-stopped" });
       flushing = false;
@@ -176,23 +183,27 @@ async function startCapture(streamId) {
 }
 
 /**
- * Initiate a graceful stop. Flushes the worklet buffer before tearing down.
- * @param {string} reason - Why we're stopping (for logging)
+ * Initiate graceful stop. Flushes the worklet before tearing down.
+ * Uses flushGeneration to prevent a stale timeout from killing a new session.
  */
 function initiateStop(reason) {
-  if (!capturing || flushing) return;
+  if (!capturing && !flushing) return;
+  // Prevent re-entry while already flushing
+  if (flushing) return;
 
-  console.log(`[Offscreen] Stopping capture (reason: ${reason})`);
+  console.log(`[Offscreen] Stopping (reason: ${reason})`);
   flushing = true;
   capturing = false;
+  const gen = ++flushGeneration;
 
   if (workletNode) {
-    // Request flush — the "flushed" response will trigger teardown
     workletNode.port.postMessage({ type: "flush" });
 
-    // Safety: if the worklet never responds (already disconnected), force teardown
+    // Safety timeout — only fires if this generation is still current.
+    // If a new startCapture() was called in the meantime, gen !== flushGeneration
+    // and the timeout is a no-op.
     setTimeout(() => {
-      if (flushing) {
+      if (flushing && flushGeneration === gen) {
         console.warn("[Offscreen] Flush timeout — forcing teardown.");
         flushChunker();
         safeSend({ type: "capture-stopped" });
@@ -201,7 +212,6 @@ function initiateStop(reason) {
       }
     }, 2000);
   } else {
-    // No worklet — just flush and signal
     flushChunker();
     safeSend({ type: "capture-stopped" });
     flushing = false;
@@ -209,9 +219,6 @@ function initiateStop(reason) {
   }
 }
 
-/**
- * Tear down all audio resources. Safe to call multiple times.
- */
 function teardown() {
   if (sourceNode) {
     try { sourceNode.disconnect(); } catch {}
@@ -236,12 +243,8 @@ function teardown() {
   capturing = false;
 }
 
-/**
- * Send a message to the service worker, swallowing errors
- * (the SW might be dead or restarting).
- */
 function safeSend(msg) {
   chrome.runtime.sendMessage(msg).catch((err) => {
-    console.warn("[Offscreen] Failed to send message:", msg.type, err.message);
+    console.warn("[Offscreen] Failed to send:", msg.type, err.message);
   });
 }

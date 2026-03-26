@@ -3,9 +3,11 @@ import { formatTimestamp } from "../utils/constants.js";
 import { deleteNote } from "../storage/db.js";
 
 /**
- * List of saved notes with delete capability and duration display.
+ * List of saved notes. Delete uses a callback to refresh the list
+ * instead of window.location.reload() (which destroys all React state
+ * and breaks active recordings).
  */
-export default function NotesList({ notes, onOpen }) {
+export default function NotesList({ notes, onOpen, onRefresh }) {
   if (notes.length === 0) {
     return (
       <div className="empty-state">
@@ -18,7 +20,7 @@ export default function NotesList({ notes, onOpen }) {
     e.stopPropagation();
     if (confirm("Delete this note? This cannot be undone.")) {
       await deleteNote(id);
-      window.location.reload(); // simple refresh
+      onRefresh?.();
     }
   };
 
@@ -38,13 +40,9 @@ export default function NotesList({ notes, onOpen }) {
           </div>
           <div className="note-meta">
             <span>{new Date(note.date).toLocaleDateString()}</span>
-            {note.duration > 0 && (
-              <span>{formatTimestamp(note.duration)}</span>
-            )}
+            {note.duration > 0 && <span>{formatTimestamp(note.duration)}</span>}
             {note.courseName && <span className="tag">{note.courseName}</span>}
-            {note.status === "error" && (
-              <span className="tag error-tag">Failed</span>
-            )}
+            {note.status === "error" && <span className="tag error-tag">Failed</span>}
           </div>
           <p className="note-preview">
             {note.transcript

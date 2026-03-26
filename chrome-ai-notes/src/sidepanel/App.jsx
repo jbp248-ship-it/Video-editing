@@ -18,14 +18,16 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState(null);
 
+  const refreshNotes = useCallback(() => {
+    getAllNotes()
+      .then(setNotes)
+      .catch((err) => console.error("[UI] Failed to load notes:", err));
+  }, []);
+
   // Load notes on mount and when returning to home
   useEffect(() => {
-    if (view === "home") {
-      getAllNotes()
-        .then(setNotes)
-        .catch((err) => console.error("[UI] Failed to load notes:", err));
-    }
-  }, [view]);
+    if (view === "home") refreshNotes();
+  }, [view, refreshNotes]);
 
   // Ask the service worker for current model status on mount
   useEffect(() => {
@@ -138,7 +140,7 @@ export default function App() {
                   : "Start Recording"}
               </button>
             </div>
-            <NotesList notes={notes} onOpen={openNote} />
+            <NotesList notes={notes} onOpen={openNote} onRefresh={refreshNotes} />
           </>
         )}
 

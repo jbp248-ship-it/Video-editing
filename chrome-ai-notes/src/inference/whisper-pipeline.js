@@ -71,11 +71,14 @@ async function _doLoad(onProgress) {
   };
 
   // Try WebGPU first
+  // Fix: assign to a local variable first. If pipeline() rejects after partial
+  // initialization, we don't leave whisperPipeline pointing at a broken object.
   try {
-    whisperPipeline = await pipeline("automatic-speech-recognition", MODEL_ID, {
+    const result = await pipeline("automatic-speech-recognition", MODEL_ID, {
       device: "webgpu",
       progress_callback: progressCb,
     });
+    whisperPipeline = result;
     loadState = "ready";
     onProgress?.({ status: "ready", progress: 100 });
     return whisperPipeline;
@@ -86,10 +89,11 @@ async function _doLoad(onProgress) {
 
   // Fallback to WASM
   try {
-    whisperPipeline = await pipeline("automatic-speech-recognition", MODEL_ID, {
+    const result = await pipeline("automatic-speech-recognition", MODEL_ID, {
       device: "wasm",
       progress_callback: progressCb,
     });
+    whisperPipeline = result;
     loadState = "ready";
     onProgress?.({ status: "ready", progress: 100 });
     return whisperPipeline;

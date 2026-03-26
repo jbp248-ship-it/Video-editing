@@ -1,17 +1,12 @@
 /**
  * IndexedDB storage layer using the `idb` library.
  *
- * Robustness features:
- *   - Singleton DB connection (no re-open per call)
+ * Fixes from code review:
+ *   - Singleton with close-event reconnection (dead connections auto-heal)
+ *   - updateNote uses a single read-modify-write transaction
+ *   - cleanupFailedNotes has 5-minute grace period + preserves notes with content
  *   - Quota checks before writes
- *   - Transactional deletes (notes + blobs atomically)
- *   - Paginated queries
- *   - Cleanup of empty/failed notes
- *   - All operations wrapped in try/catch with meaningful errors
- *
- * Schema:
- *   notes        – transcription sessions
- *   audioBlobs   – raw audio for replay / re-transcription
+ *   - Chunk cap prevents unbounded growth
  */
 
 import { openDB } from "idb";
@@ -19,8 +14,8 @@ import { NOTES_PAGE_SIZE } from "../utils/constants.js";
 
 const DB_NAME = "ai-notes";
 const DB_VERSION = 1;
+const CLEANUP_GRACE_MS = 5 * 60 * 1000; // 5 minutes
 
-// Singleton connection — avoids opening a new connection per call.
 let dbInstance = null;
 
 async function getDB() {
@@ -50,10 +45,19 @@ async function getDB() {
       console.warn("[DB] Database upgrade blocked by another tab.");
     },
     blocking() {
-      // Close our connection so the other tab can upgrade
       dbInstance?.close();
       dbInstance = null;
     },
+  });
+
+  // Fix: detect connection death so getDB() reopens on next call.
+  // Without this, a dead dbInstance sits in memory and all operations fail.
+  const rawDb = dbInstance;
+  rawDb.addEventListener?.("close", () => {
+    console.warn("[DB] Connection closed unexpectedly — will reconnect on next call.");
+    if (dbInstance === rawDb) {
+      dbInstance = null;
+    }
   });
 
   return dbInstance;
@@ -62,7 +66,7 @@ async function getDB() {
 // ── Quota helper ──
 
 async function checkQuota() {
-  if (!navigator.storage?.estimate) return; // API not available
+  if (!navigator.storage?.estimate) return;
   const { usage, quota } = await navigator.storage.estimate();
   const remaining = quota - usage;
   const MB = 1024 * 1024;
@@ -88,33 +92,39 @@ export async function createNote({ url, title, courseName = "" }) {
     chunks: [],
     summary: "",
     duration: 0,
-    status: "recording", // "recording" | "complete" | "error"
+    status: "recording",
   });
   return id;
 }
 
 export async function getNote(id) {
   const db = await getDB();
-  const note = await db.get("notes", id);
-  if (!note) return null;
-  return note;
+  return (await db.get("notes", id)) || null;
 }
 
+/**
+ * Update a note. Uses a single transaction to prevent lost-update races.
+ */
 export async function updateNote(id, updates) {
   const db = await getDB();
-  const note = await db.get("notes", id);
+  const tx = db.transaction("notes", "readwrite");
+  const store = tx.objectStore("notes");
+
+  const note = await store.get(id);
   if (!note) {
+    await tx.done;
     console.warn(`[DB] updateNote: note ${id} not found`);
     return null;
   }
+
   const updated = { ...note, ...updates };
-  await db.put("notes", updated);
+  await store.put(updated);
+  await tx.done;
   return updated;
 }
 
 /**
- * Append new transcript text and chunks to an existing note.
- * Uses a read-modify-write inside a transaction for safety.
+ * Append new transcript text and chunks inside a single transaction.
  */
 export async function appendTranscript(id, newText, newChunks = []) {
   const db = await getDB();
@@ -127,15 +137,14 @@ export async function appendTranscript(id, newText, newChunks = []) {
     throw new Error(`Note ${id} not found`);
   }
 
-  // Guard against unbounded growth — cap chunks at 10,000 entries
   const maxChunks = 10000;
-  const existingChunks = note.chunks || [];
-  const mergedChunks = existingChunks.length + newChunks.length > maxChunks
-    ? [...existingChunks.slice(-(maxChunks - newChunks.length)), ...newChunks]
-    : [...existingChunks, ...newChunks];
+  const existing = note.chunks || [];
+  const merged = existing.length + newChunks.length > maxChunks
+    ? [...existing.slice(-(maxChunks - newChunks.length)), ...newChunks]
+    : [...existing, ...newChunks];
 
   note.transcript += (note.transcript ? " " : "") + newText;
-  note.chunks = mergedChunks;
+  note.chunks = merged;
 
   await store.put(note);
   await tx.done;
@@ -147,7 +156,6 @@ export async function deleteNote(id) {
   const tx = db.transaction(["notes", "audioBlobs"], "readwrite");
 
   try {
-    // Delete associated audio blobs first
     const blobStore = tx.objectStore("audioBlobs");
     const blobIndex = blobStore.index("by-noteId");
     let cursor = await blobIndex.openCursor(id);
@@ -155,8 +163,6 @@ export async function deleteNote(id) {
       await cursor.delete();
       cursor = await cursor.continue();
     }
-
-    // Delete the note
     await tx.objectStore("notes").delete(id);
     await tx.done;
   } catch (err) {
@@ -166,10 +172,7 @@ export async function deleteNote(id) {
 }
 
 /**
- * Get notes with pagination, newest first.
- * @param {number} [page=0] - Zero-based page index
- * @param {number} [pageSize=NOTES_PAGE_SIZE]
- * @returns {Promise<{ notes: Array, hasMore: boolean }>}
+ * Paginated query, newest first.
  */
 export async function getNotesPage(page = 0, pageSize = NOTES_PAGE_SIZE) {
   const db = await getDB();
@@ -180,7 +183,6 @@ export async function getNotesPage(page = 0, pageSize = NOTES_PAGE_SIZE) {
   let skipped = 0;
   const skipTarget = page * pageSize;
 
-  // Walk the index in reverse (newest first)
   let cursor = await index.openCursor(null, "prev");
   while (cursor) {
     if (skipped < skipTarget) {
@@ -188,26 +190,21 @@ export async function getNotesPage(page = 0, pageSize = NOTES_PAGE_SIZE) {
       cursor = await cursor.continue();
       continue;
     }
-    if (notes.length >= pageSize + 1) break; // fetch one extra to detect hasMore
+    if (notes.length >= pageSize + 1) break;
     notes.push(cursor.value);
     cursor = await cursor.continue();
   }
-
   await tx.done;
 
   const hasMore = notes.length > pageSize;
   if (hasMore) notes.pop();
-
   return { notes, hasMore };
 }
 
-/**
- * Legacy: get all notes (for backward compat). Use getNotesPage() for new code.
- */
 export async function getAllNotes() {
   const db = await getDB();
   const all = await db.getAllFromIndex("notes", "by-date");
-  return all.reverse(); // newest first
+  return all.reverse();
 }
 
 export async function getNotesByUrl(url) {
@@ -221,8 +218,9 @@ export async function getNotesByCourse(courseName) {
 }
 
 /**
- * Clean up notes that are stuck in "recording" status with no transcript.
- * Called on startup to prune failed recordings.
+ * Clean up ghost notes: stuck in "recording" for > 5 minutes.
+ * - No transcript → delete (truly dead)
+ * - Has transcript → mark "complete" (preserve user data)
  */
 export async function cleanupFailedNotes() {
   const db = await getDB();
@@ -231,20 +229,30 @@ export async function cleanupFailedNotes() {
 
   let cursor = await store.openCursor();
   let cleaned = 0;
+  const cutoff = new Date(Date.now() - CLEANUP_GRACE_MS);
 
   while (cursor) {
     const note = cursor.value;
-    // A note with "recording" status and no transcript is a failed recording
-    if (note.status === "recording" && !note.transcript) {
-      await cursor.delete();
-      cleaned++;
+
+    if (note.status === "recording" && new Date(note.date) < cutoff) {
+      if (!note.transcript) {
+        // Truly dead — no content, safe to delete
+        await cursor.delete();
+        cleaned++;
+      } else {
+        // Has content — preserve it, just fix the status
+        note.status = "complete";
+        await cursor.update(note);
+        cleaned++;
+      }
     }
+
     cursor = await cursor.continue();
   }
 
   await tx.done;
   if (cleaned > 0) {
-    console.log(`[DB] Cleaned up ${cleaned} failed recording(s).`);
+    console.log(`[DB] Cleaned up ${cleaned} ghost note(s).`);
   }
   return cleaned;
 }
@@ -254,11 +262,7 @@ export async function cleanupFailedNotes() {
 export async function saveAudioBlob(noteId, blob) {
   await checkQuota();
   const db = await getDB();
-  return db.add("audioBlobs", {
-    noteId,
-    blob,
-    createdAt: new Date(),
-  });
+  return db.add("audioBlobs", { noteId, blob, createdAt: new Date() });
 }
 
 export async function getAudioBlobs(noteId) {

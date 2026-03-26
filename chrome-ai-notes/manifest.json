@@ -13,7 +13,7 @@
     "tabs"
   ],
   "background": {
-    "service_worker": "src/background/service-worker.js",
+    "service_worker": "background.js",
     "type": "module"
   },
   "side_panel": {
@@ -37,8 +37,8 @@
       "resources": [
         "models/*",
         "wasm/*",
-        "src/audio/audio-processor.js",
-        "src/offscreen/offscreen.html"
+        "audio-processor.js",
+        "offscreen.html"
       ],
       "matches": ["<all_urls>"]
     }
