@@ -7,18 +7,26 @@ export default defineConfig({
   plugins: [
     react(),
 
-    // Copy ONNX model weights + WASM runtime into the extension bundle
-    // so the extension works fully offline after the first install.
+    // Copy all non-JS assets into dist/ so the extension is self-contained
     viteStaticCopy({
       targets: [
+        // Manifest — Chrome needs this at the root of the extension
         {
-          // Whisper-tiny.en ONNX model files (downloaded by `npm run download-model`)
-          src: "models/*",
+          src: "manifest.json",
+          dest: ".",
+        },
+        // Extension icons
+        {
+          src: "icons/*.png",
+          dest: "icons",
+        },
+        // Whisper ONNX model files (downloaded by `npm run download-model`)
+        {
+          src: "models/**/*",
           dest: "models",
         },
+        // @xenova/transformers WASM backend for offline inference
         {
-          // @xenova/transformers ships its own WASM backend;
-          // we copy it so the service worker can load it without a network.
           src: "node_modules/@xenova/transformers/dist/*.wasm",
           dest: "wasm",
         },
@@ -50,7 +58,7 @@ export default defineConfig({
 
       output: {
         entryFileNames: (chunkInfo) => {
-          // Keep the service worker and audio processor at predictable paths
+          // Keep these at predictable paths for manifest.json references
           if (chunkInfo.name === "service-worker") {
             return "src/background/service-worker.js";
           }
@@ -67,7 +75,6 @@ export default defineConfig({
   },
 
   // Point the Transformers.js library at the local /models folder
-  // instead of the Hugging Face CDN.
   define: {
     "import.meta.env.MODELS_PATH": JSON.stringify("/models"),
   },

@@ -5,9 +5,11 @@
   "description": "Offline AI Note Taker Chrome Extension — local Whisper transcription + Gemini Nano summaries",
   "type": "module",
   "scripts": {
+    "setup": "npm install && node scripts/generate-icons.mjs && npm run build",
     "dev": "vite build --watch --mode development",
     "build": "vite build",
     "download-model": "node scripts/download-model.mjs",
+    "generate-icons": "node scripts/generate-icons.mjs",
     "postinstall": "npm run download-model"
   },
   "dependencies": {
