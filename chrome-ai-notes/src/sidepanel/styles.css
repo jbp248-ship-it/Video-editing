@@ -1,0 +1,289 @@
+/* ── Base ── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  color: #1a1a1a;
+  background: #fafafa;
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* ── App layout ── */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #111;
+  color: #fff;
+}
+
+.header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.model-badge {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 10px;
+}
+
+.model-badge.loading {
+  background: #fbbf24;
+  color: #111;
+}
+
+.model-badge.ready {
+  background: #34d399;
+  color: #111;
+}
+
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: #2563eb;
+  color: #fff;
+}
+
+.btn.secondary {
+  background: #e5e7eb;
+  color: #1a1a1a;
+}
+
+.btn.danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+.btn.ghost {
+  background: none;
+  color: #2563eb;
+  padding: 4px 8px;
+}
+
+.btn.small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* ── Controls ── */
+.controls {
+  margin-bottom: 20px;
+}
+
+/* ── Notes list ── */
+.notes-list {
+  list-style: none;
+}
+
+.note-card {
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+
+.note-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.note-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.note-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.tag {
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.tag.editable {
+  cursor: pointer;
+}
+
+.note-preview {
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.4;
+}
+
+.empty-state {
+  text-align: center;
+  color: #9ca3af;
+  padding: 40px 16px;
+}
+
+/* ── Live transcript ── */
+.live-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.recording-indicator.active {
+  color: #ef4444;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #6b7280;
+}
+
+.recording-indicator.active .dot {
+  background: #ef4444;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.transcript-feed {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.placeholder {
+  color: #9ca3af;
+  font-style: italic;
+}
+
+.transcript-line {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+/* ── Note detail ── */
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.detail-header h2 {
+  font-size: 18px;
+}
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 16px;
+}
+
+.course-edit {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.course-edit input {
+  padding: 3px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 12px;
+  width: 140px;
+}
+
+.transcript-section,
+.summary-section {
+  margin-bottom: 16px;
+}
+
+.transcript-section h3,
+.summary-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #374151;
+}
+
+.transcript-text,
+.summary-text {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.loading {
+  text-align: center;
+  color: #9ca3af;
+  padding: 20px;
+}

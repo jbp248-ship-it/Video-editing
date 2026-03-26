@@ -43,6 +43,9 @@ export default defineConfig({
 
         // AudioWorklet processor (runs in its own scope, must stay a plain file)
         "audio-processor": resolve(__dirname, "src/audio/audio-processor.js"),
+
+        // Offscreen document (bridges tabCapture → AudioWorklet)
+        offscreen: resolve(__dirname, "src/offscreen/offscreen.html"),
       },
 
       output: {
@@ -53,6 +56,9 @@ export default defineConfig({
           }
           if (chunkInfo.name === "audio-processor") {
             return "src/audio/audio-processor.js";
+          }
+          if (chunkInfo.name === "offscreen") {
+            return "src/offscreen/offscreen.js";
           }
           return "assets/[name]-[hash].js";
         },
