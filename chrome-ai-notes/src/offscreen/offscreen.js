@@ -1,12 +1,9 @@
 /**
- * Offscreen document — bridges chrome.tabCapture → AudioWorklet → Service Worker.
+ * Offscreen document — captures audio and pipes it through AudioWorklet.
  *
- * Fixes from code review:
- *   - Zero-copy: sends Float32Array directly (structured clone), not Array.from()
- *   - Race-safe flush: tracks a flushGeneration to prevent stale timeout teardowns
- *   - MediaStream.onended / oninactive for stream death detection
- *   - Guards against samples arriving after teardown
- *   - All chrome.runtime.sendMessage wrapped with .catch()
+ * Supports two modes:
+ *   - "microphone": records from the user's mic (for in-person lectures)
+ *   - "tab": records from a browser tab (for online videos/meetings)
  */
 
 const TARGET_SR = 16000;
@@ -19,8 +16,6 @@ let sourceNode = null;
 let workletNode = null;
 let capturing = false;
 let flushing = false;
-// Incremented every time initiateStop is called. The flush timeout checks
-// this to avoid tearing down a NEW session that started during the window.
 let flushGeneration = 0;
 
 // ── 1-Second Chunker ──
@@ -43,7 +38,6 @@ function onWorkletSamples(samples) {
   while (srcOffset < srcLen) {
     const remaining = ONE_SECOND_FRAMES - chunkWriteIdx;
     const toCopy = Math.min(remaining, srcLen - srcOffset);
-
     chunkBuffer.set(samples.subarray(srcOffset, srcOffset + toCopy), chunkWriteIdx);
     chunkWriteIdx += toCopy;
     srcOffset += toCopy;
@@ -54,14 +48,7 @@ function onWorkletSamples(samples) {
   }
 }
 
-/**
- * Ship a 1-second chunk to the service worker.
- * Sends Float32Array directly — structured clone handles typed arrays
- * efficiently without boxing into Number objects. This eliminates the
- * ~690MB of GC pressure over a 90-minute lecture that Array.from() caused.
- */
 function shipChunk() {
-  // .slice() creates a copy since chunkBuffer is reused
   safeSend({
     type: "audio-chunk",
     audio: chunkBuffer.slice(0, ONE_SECOND_FRAMES),
@@ -85,7 +72,9 @@ function flushChunker() {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "start-capture") {
-    startCapture(msg.streamId)
+    // mode: "microphone" (default) or "tab"
+    const mode = msg.mode || "microphone";
+    startCapture(mode, msg.streamId)
       .then(() => sendResponse({ ok: true }))
       .catch((err) => {
         console.error("[Offscreen] Capture error:", err);
@@ -103,8 +92,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 // ── Capture lifecycle ──
 
-async function startCapture(streamId) {
-  // Tear down any previous session
+async function startCapture(mode, streamId) {
   if (capturing || flushing) {
     teardown();
     flushing = false;
@@ -112,21 +100,33 @@ async function startCapture(streamId) {
 
   resetChunker();
 
-  // 1. Obtain the tab's media stream
+  // 1. Get audio stream based on mode
   try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        mandatory: {
-          chromeMediaSource: "tab",
-          chromeMediaSourceId: streamId,
+    if (mode === "tab" && streamId) {
+      // Tab audio capture
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          mandatory: {
+            chromeMediaSource: "tab",
+            chromeMediaSourceId: streamId,
+          },
         },
-      },
-    });
+      });
+    } else {
+      // Microphone capture (default for in-person lectures)
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+    }
   } catch (err) {
-    throw new Error(`Failed to get media stream: ${err.message}`);
+    throw new Error(`Failed to get audio: ${err.message}. Make sure your microphone is connected and allowed.`);
   }
 
-  // 2. Detect stream death (tab closed, navigated away)
+  // 2. Detect stream death
   for (const track of mediaStream.getAudioTracks()) {
     track.onended = () => {
       console.warn("[Offscreen] Audio track ended.");
@@ -149,7 +149,6 @@ async function startCapture(streamId) {
   const hardwareSR = audioContext.sampleRate;
 
   // 4. Load AudioWorklet
-  // After build, the worklet lives at dist/audio-processor.js (flat)
   try {
     const workletUrl = chrome.runtime.getURL("audio-processor.js");
     await audioContext.audioWorklet.addModule(workletUrl);
@@ -179,16 +178,11 @@ async function startCapture(streamId) {
   sourceNode.connect(workletNode);
   capturing = true;
 
-  console.log(`[Offscreen] Capture started. Hardware SR: ${hardwareSR} Hz`);
+  console.log(`[Offscreen] Capture started (${mode}). Hardware SR: ${hardwareSR} Hz`);
 }
 
-/**
- * Initiate graceful stop. Flushes the worklet before tearing down.
- * Uses flushGeneration to prevent a stale timeout from killing a new session.
- */
 function initiateStop(reason) {
   if (!capturing && !flushing) return;
-  // Prevent re-entry while already flushing
   if (flushing) return;
 
   console.log(`[Offscreen] Stopping (reason: ${reason})`);
@@ -198,10 +192,6 @@ function initiateStop(reason) {
 
   if (workletNode) {
     workletNode.port.postMessage({ type: "flush" });
-
-    // Safety timeout — only fires if this generation is still current.
-    // If a new startCapture() was called in the meantime, gen !== flushGeneration
-    // and the timeout is a no-op.
     setTimeout(() => {
       if (flushing && flushGeneration === gen) {
         console.warn("[Offscreen] Flush timeout — forcing teardown.");
@@ -220,23 +210,11 @@ function initiateStop(reason) {
 }
 
 function teardown() {
-  if (sourceNode) {
-    try { sourceNode.disconnect(); } catch {}
-    sourceNode = null;
-  }
-  if (workletNode) {
-    try { workletNode.disconnect(); } catch {}
-    workletNode = null;
-  }
-  if (audioContext && audioContext.state !== "closed") {
-    audioContext.close().catch(() => {});
-    audioContext = null;
-  }
+  if (sourceNode) { try { sourceNode.disconnect(); } catch {} sourceNode = null; }
+  if (workletNode) { try { workletNode.disconnect(); } catch {} workletNode = null; }
+  if (audioContext && audioContext.state !== "closed") { audioContext.close().catch(() => {}); audioContext = null; }
   if (mediaStream) {
-    mediaStream.getTracks().forEach((t) => {
-      t.onended = null;
-      t.stop();
-    });
+    mediaStream.getTracks().forEach((t) => { t.onended = null; t.stop(); });
     mediaStream.oninactive = null;
     mediaStream = null;
   }

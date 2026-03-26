@@ -190,15 +190,13 @@ async function handleStartRecording() {
   const { signal } = startAbort;
 
   try {
-    // 1. Get active tab
+    // 1. Get active tab (for metadata only — not for tab capture)
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) throw new Error("No active tab found");
-    recordingTabId = tab.id;
+    recordingTabId = tab?.id || null;
 
-    // Check if aborted between steps
     if (signal.aborted) throw new Error("Recording start was cancelled");
 
-    // 2. Load model if needed — pass AbortSignal so Stop cancels the load
+    // 2. Load model if needed
     if (!isModelReady()) {
       const ms = getModelState();
       if (ms.state === "error") resetModel();
@@ -210,24 +208,24 @@ async function handleStartRecording() {
     if (signal.aborted) throw new Error("Recording start was cancelled");
 
     // 3. Create note
-    currentNoteId = await createNote({ url: tab.url, title: tab.title });
+    currentNoteId = await createNote({
+      url: tab?.url || "microphone",
+      title: tab?.title || "Microphone Recording",
+    });
     recordingStartTime = Date.now();
 
-    // 4. Get stream ID
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+    // 4. Create offscreen document
+    await ensureOffscreenDocument();
 
     if (signal.aborted) throw new Error("Recording start was cancelled");
 
-    // 5. Create offscreen document
-    await ensureOffscreenDocument();
-
-    // 6. Start capture
+    // 5. Start capture — microphone mode (no tabCapture needed)
     const response = await chrome.runtime.sendMessage({
       type: "start-capture",
-      streamId,
+      mode: "microphone",
     });
     if (response && !response.ok) {
-      throw new Error(response.error || "Offscreen capture failed");
+      throw new Error(response.error || "Microphone capture failed");
     }
 
     // 7. Activate
