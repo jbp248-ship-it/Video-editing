@@ -2,36 +2,43 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import { resolve } from "path";
+import { existsSync } from "fs";
 
 /**
- * Chrome Extension Build — Multi-output strategy
- *
- * Why not @crxjs/vite-plugin?
- *   CRXJS v2 beta has known issues with Vite 5 + MV3 service workers that
- *   import large libraries (@xenova/transformers). Until v2 is stable, we
- *   use a manual multi-output approach that's more predictable.
+ * Chrome Extension Build
  *
  * Strategy:
- *   - `manualChunks` forces all shared code into the "sidepanel" chunk.
- *     The SW and offscreen entries get everything inlined because they
- *     never share a chunk with sidepanel.
- *   - `preserveEntrySignatures: "exports-only"` ensures each entry is
- *     self-contained with its deps inlined.
- *   - AudioWorklet stays a standalone file (no module imports possible).
+ *   - Service worker, offscreen, and worklet are separate Rollup entries.
+ *   - manualChunks routes React/idb into a "vendor" chunk for sidepanel only.
+ *     Everything else stays inlined in the entry that imports it.
+ *   - Models and WASM are copied only if they exist (first build before
+ *     model download still succeeds).
  */
+
+// Conditionally include model/wasm copy targets
+const staticTargets = [
+  { src: "manifest.json", dest: "." },
+  { src: "icons/*.png", dest: "icons" },
+  { src: "src/offscreen/offscreen.html", dest: "." },
+];
+
+// Only copy models if they've been downloaded
+if (existsSync(resolve(__dirname, "models/Xenova"))) {
+  staticTargets.push({ src: "models/**/*", dest: "models" });
+}
+
+// Only copy WASM if node_modules exists
+if (existsSync(resolve(__dirname, "node_modules/@xenova/transformers/dist"))) {
+  staticTargets.push({
+    src: "node_modules/@xenova/transformers/dist/*.wasm",
+    dest: "wasm",
+  });
+}
+
 export default defineConfig({
   plugins: [
     react(),
-
-    viteStaticCopy({
-      targets: [
-        { src: "manifest.json", dest: "." },
-        { src: "icons/*.png", dest: "icons" },
-        { src: "src/offscreen/offscreen.html", dest: "." },
-        { src: "models/**/*", dest: "models" },
-        { src: "node_modules/@xenova/transformers/dist/*.wasm", dest: "wasm" },
-      ],
-    }),
+    viteStaticCopy({ targets: staticTargets }),
   ],
 
   build: {
@@ -49,25 +56,19 @@ export default defineConfig({
       },
 
       output: {
-        // Ensure each entry is fully self-contained
-        preserveEntrySignatures: "exports-only",
-
         entryFileNames: (chunkInfo) => {
           if (chunkInfo.name === "sidepanel") return "assets/[name]-[hash].js";
           return "[name].js";
         },
 
-        // Shared code only goes into sidepanel chunks.
-        // background and offscreen get everything inlined because
-        // they are never referenced by a chunk name here.
+        // Route sidepanel-only libs into a vendor chunk.
+        // SW and offscreen don't import React/idb, so their deps stay inlined.
         manualChunks: (id) => {
-          // React, idb, and other libs used by sidepanel can be chunked
           if (id.includes("node_modules/react") ||
               id.includes("node_modules/react-dom") ||
               id.includes("node_modules/idb")) {
             return "vendor";
           }
-          // Everything else: let Rollup inline into the importing entry
           return undefined;
         },
       },
