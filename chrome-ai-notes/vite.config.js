@@ -28,11 +28,16 @@ if (existsSync(resolve(__dirname, "models/Xenova"))) {
 }
 
 // Only copy WASM if node_modules exists
-if (existsSync(resolve(__dirname, "node_modules/@xenova/transformers/dist"))) {
-  staticTargets.push({
-    src: "node_modules/@xenova/transformers/dist/*.wasm",
-    dest: "wasm",
-  });
+// @huggingface/transformers v3 WASM files
+const wasmPaths = [
+  "node_modules/@huggingface/transformers/dist/*.wasm",
+  "node_modules/onnxruntime-web/dist/*.wasm",
+];
+for (const wasmGlob of wasmPaths) {
+  const base = resolve(__dirname, wasmGlob.split("*")[0]);
+  if (existsSync(base)) {
+    staticTargets.push({ src: wasmGlob, dest: "wasm" });
+  }
 }
 
 export default defineConfig({

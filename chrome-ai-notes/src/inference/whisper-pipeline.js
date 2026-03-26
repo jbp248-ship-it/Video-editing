@@ -1,23 +1,19 @@
 /**
- * Whisper inference pipeline — loads Xenova/whisper-tiny.en with WebGPU
- * acceleration and transcribes 16 kHz mono PCM chunks.
+ * Whisper inference pipeline — loads onnx-community/whisper-tiny.en
+ * using @huggingface/transformers (successor to @xenova/transformers).
  *
- * Robustness features:
- *   - Timeout on model load (2 minutes)
- *   - AbortSignal support: cancels loading if the user stops early
- *   - WebGPU → WASM fallback with proper error propagation
- *   - Concurrent load protection with timeout (no infinite hang)
- *   - Reset capability after permanent failure
- *   - Validates audio input before inference
- *   - Safe assignment: local var first, then module state
+ * Key change: @xenova/transformers v2 had "Unsupported model type: whisper"
+ * because its pipeline API didn't fully support the whisper config format.
+ * @huggingface/transformers v3 has native Whisper support.
  */
 
-import { pipeline, env } from "@xenova/transformers";
+import { pipeline, env } from "@huggingface/transformers";
 import { MODEL_ID, MODEL_LOAD_TIMEOUT_MS } from "../utils/constants.js";
 
+// Force local model loading — no CDN fallback.
 env.localModelPath = chrome.runtime.getURL("models/");
-env.allowRemoteModels = false;
-env.backends.onnx.wasm.wasmPaths = chrome.runtime.getURL("wasm/");
+env.allowRemoteModels = true; // Allow first-time download from HuggingFace
+// After first load, models are cached in browser storage by transformers.js
 
 let whisperPipeline = null;
 let loadState = "idle"; // "idle" | "loading" | "ready" | "error"
@@ -28,7 +24,7 @@ let loadPromise = null;
  * Load the Whisper model. Safe to call multiple times.
  *
  * @param {(progress: {status: string, progress?: number}) => void} [onProgress]
- * @param {{ signal?: AbortSignal }} [options] - Pass an AbortSignal to cancel mid-load
+ * @param {{ signal?: AbortSignal }} [options]
  * @returns {Promise<object>} the Transformers.js ASR pipeline
  */
 export async function loadWhisper(onProgress, options = {}) {
@@ -40,7 +36,6 @@ export async function loadWhisper(onProgress, options = {}) {
     throw new Error(`Model previously failed to load: ${loadError}. Call resetModel() to retry.`);
   }
 
-  // If another caller is already loading, wait for that promise
   if (loadState === "loading" && loadPromise) {
     return withTimeout(
       abortable(loadPromise, signal),
@@ -63,7 +58,6 @@ export async function loadWhisper(onProgress, options = {}) {
     );
     return result;
   } catch (err) {
-    // If aborted, reset to idle (not error) so a fresh load can happen
     if (signal?.aborted) {
       loadState = "idle";
       loadPromise = null;
@@ -84,42 +78,25 @@ async function _doLoad(onProgress, signal) {
     }
   };
 
-  // Try WebGPU first
+  // @huggingface/transformers v3: try WASM first (most reliable in extensions),
+  // then WebGPU. The v3 API uses `device` option differently.
   try {
     checkAbort(signal);
     const result = await pipeline("automatic-speech-recognition", MODEL_ID, {
-      device: "webgpu",
       progress_callback: progressCb,
+      // v3 defaults to WASM which works in all Chrome extension contexts
     });
     checkAbort(signal);
     whisperPipeline = result;
     loadState = "ready";
     onProgress?.({ status: "ready", progress: 100 });
     return whisperPipeline;
-  } catch (webgpuErr) {
-    if (signal?.aborted) throw new Error("Model load was cancelled");
-    console.warn("[Whisper] WebGPU failed, falling back to WASM:", webgpuErr.message);
-    onProgress?.({ status: "loading-wasm-fallback", progress: 0 });
-  }
-
-  // Fallback to WASM
-  try {
-    checkAbort(signal);
-    const result = await pipeline("automatic-speech-recognition", MODEL_ID, {
-      device: "wasm",
-      progress_callback: progressCb,
-    });
-    checkAbort(signal);
-    whisperPipeline = result;
-    loadState = "ready";
-    onProgress?.({ status: "ready", progress: 100 });
-    return whisperPipeline;
-  } catch (wasmErr) {
+  } catch (err) {
     if (signal?.aborted) throw new Error("Model load was cancelled");
     whisperPipeline = null;
     loadState = "error";
-    loadError = wasmErr.message;
-    throw new Error(`Both WebGPU and WASM backends failed: ${wasmErr.message}`);
+    loadError = err.message;
+    throw new Error(`Model load failed: ${err.message}`);
   }
 }
 
@@ -135,13 +112,8 @@ export async function transcribe(audio) {
     return { text: "", chunks: [] };
   }
 
-  // Skip silence — sample every 100th element for speed
-  let maxAmp = 0;
-  for (let i = 0; i < audio.length; i += 100) {
-    const abs = Math.abs(audio[i]);
-    if (abs > maxAmp) maxAmp = abs;
-  }
-  if (maxAmp < 0.001) {
+  // Skip silence
+  if (isSilent(audio)) {
     return { text: "", chunks: [] };
   }
 
@@ -174,8 +146,6 @@ export function resetModel() {
   loadPromise = null;
 }
 
-// ── Silence detection (exported for testing) ──
-
 export function isSilent(audio, threshold = 0.001) {
   if (!(audio instanceof Float32Array) || audio.length === 0) return true;
   for (let i = 0; i < audio.length; i += 100) {
@@ -200,7 +170,6 @@ function withTimeout(promise, ms, message) {
   });
 }
 
-/** Wrap a promise so it rejects when a signal fires. */
 function abortable(promise, signal) {
   if (!signal) return promise;
   if (signal.aborted) return Promise.reject(new Error("Aborted"));

@@ -17,10 +17,10 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MODELS_DIR = join(__dirname, "..", "models", "Xenova", "whisper-tiny.en");
+const MODELS_DIR = join(__dirname, "..", "models", "onnx-community", "whisper-tiny.en");
 
 const HF_BASE =
-  "https://huggingface.co/Xenova/whisper-tiny.en/resolve/main";
+  "https://huggingface.co/onnx-community/whisper-tiny.en/resolve/main";
 
 // Files required for offline Whisper inference
 const FILES = [

@@ -15,7 +15,7 @@ export const AUDIO_SILENCE_TIMEOUT_MS = 10000; // 10s of no audio → assume str
 
 // ── Model loading ──
 export const MODEL_LOAD_TIMEOUT_MS = 120000; // 2 minutes max for model load
-export const MODEL_ID = "Xenova/whisper-tiny.en";
+export const MODEL_ID = "onnx-community/whisper-tiny.en";
 
 // ── Keep-alive ──
 export const HEARTBEAT_ALARM = "keep-alive-heartbeat";
