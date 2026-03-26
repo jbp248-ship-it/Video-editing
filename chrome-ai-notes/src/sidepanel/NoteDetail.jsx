@@ -1,64 +1,54 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { getNote, updateNote } from "../storage/db.js";
 import { downloadNoteAsMarkdown } from "../utils/export-markdown.js";
+import {
+  formatTimestamp, SUMMARY_SYSTEM_PROMPT, SUMMARY_MAX_WORDS,
+} from "../utils/constants.js";
 
 /**
- * Detail view for a saved note.
- * Full timestamped transcript, Summarize (window.ai), Export to Markdown.
+ * Detail view — full transcript, summarize (window.ai), export to Markdown.
+ * Uses shared constants for prompt and timestamp formatting.
  */
-
-const SUMMARY_SYSTEM_PROMPT = `You are an expert academic note-taker. Analyze the following lecture transcript and produce a structured summary in this exact format:
-
-## Core Thesis
-[One clear sentence stating the main argument or topic of the lecture]
-
-## Three Key Supporting Points
-1. [First key point with a brief explanation]
-2. [Second key point with a brief explanation]
-3. [Third key point with a brief explanation]
-
-## Unresolved Questions
-- [Any questions raised but not fully answered in the lecture]
-- [Areas that need further exploration]
-
-Be concise but thorough. Use the speaker's own terminology where possible.`;
-
 export default function NoteDetail({ noteId, onBack }) {
   const [note, setNote] = useState(null);
   const [summary, setSummary] = useState("");
+  const [summaryError, setSummaryError] = useState(null);
   const [summarizing, setSummarizing] = useState(false);
   const [courseName, setCourseName] = useState("");
   const [editing, setEditing] = useState(false);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
-    getNote(noteId).then((n) => {
-      setNote(n);
-      setSummary(n.summary || "");
-      setCourseName(n.courseName || "");
-    });
+    getNote(noteId)
+      .then((n) => {
+        if (!n) {
+          setLoadError("Note not found.");
+          return;
+        }
+        setNote(n);
+        setSummary(n.summary || "");
+        setCourseName(n.courseName || "");
+      })
+      .catch((err) => setLoadError(err.message));
   }, [noteId]);
 
   // ── Summarize with window.ai (Gemini Nano) ──
   const handleSummarize = useCallback(async () => {
     if (!note?.transcript) return;
     setSummarizing(true);
+    setSummaryError(null);
 
     try {
-      // Check if window.ai is available (Chrome 124+ with Gemini Nano)
-      if (!window.ai || !window.ai.createTextSession) {
+      if (!window.ai?.createTextSession) {
         throw new Error(
-          "window.ai not available. Enable chrome://flags/#optimization-guide-on-device-model"
+          "window.ai not available. Enable it at chrome://flags/#optimization-guide-on-device-model"
         );
       }
 
-      // Truncate for token limits
-      const maxWords = 4000;
       const words = note.transcript.split(/\s+/);
-      const truncated =
-        words.length > maxWords
-          ? words.slice(0, maxWords).join(" ") +
-            "\n\n[Transcript truncated for summary]"
-          : note.transcript;
+      const truncated = words.length > SUMMARY_MAX_WORDS
+        ? words.slice(0, SUMMARY_MAX_WORDS).join(" ") + "\n\n[Transcript truncated]"
+        : note.transcript;
 
       const session = await window.ai.createTextSession({
         systemPrompt: SUMMARY_SYSTEM_PROMPT,
@@ -70,47 +60,45 @@ export default function NoteDetail({ noteId, onBack }) {
       session.destroy();
     } catch (err) {
       console.error("[Summarize]", err);
-      setSummary(`Error: ${err.message}`);
+      setSummaryError(err.message);
     } finally {
       setSummarizing(false);
     }
   }, [note, noteId]);
 
-  // ── Export to Markdown (with timestamps) ──
   const handleExport = useCallback(() => {
     if (!note) return;
     downloadNoteAsMarkdown(note, summary || undefined);
   }, [note, summary]);
 
-  // ── Save course name ──
   const saveCourse = useCallback(async () => {
     await updateNote(noteId, { courseName });
     setNote((n) => ({ ...n, courseName }));
     setEditing(false);
   }, [noteId, courseName]);
 
-  // ── Format timestamp for display ──
-  const fmtTs = (sec) => {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = Math.floor(sec % 60);
-    return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
-  };
+  if (loadError) {
+    return (
+      <div className="note-detail">
+        <button className="btn ghost" onClick={onBack}>&larr; Back</button>
+        <div className="error-banner">{loadError}</div>
+      </div>
+    );
+  }
 
-  if (!note) return <p className="loading">Loading…</p>;
+  if (!note) return <p className="loading">Loading...</p>;
 
   return (
     <div className="note-detail">
       <div className="detail-header">
-        <button className="btn ghost" onClick={onBack}>
-          &larr; Back
-        </button>
+        <button className="btn ghost" onClick={onBack}>&larr; Back</button>
         <h2>{note.title || "Untitled Note"}</h2>
       </div>
 
       <div className="detail-meta">
         <span>{new Date(note.date).toLocaleDateString()}</span>
-        {note.duration > 0 && <span>{fmtTs(note.duration)}</span>}
+        {note.duration > 0 && <span>{formatTimestamp(note.duration)}</span>}
+        {note.status === "error" && <span className="tag error-tag">Failed</span>}
         {editing ? (
           <span className="course-edit">
             <input
@@ -118,9 +106,7 @@ export default function NoteDetail({ noteId, onBack }) {
               onChange={(e) => setCourseName(e.target.value)}
               placeholder="Course name"
             />
-            <button className="btn small" onClick={saveCourse}>
-              Save
-            </button>
+            <button className="btn small" onClick={saveCourse}>Save</button>
           </span>
         ) : (
           <span
@@ -139,7 +125,9 @@ export default function NoteDetail({ noteId, onBack }) {
           {note.chunks && note.chunks.length > 0 ? (
             note.chunks.map((chunk, i) => (
               <p key={i} className="transcript-line">
-                <span className="timestamp">[{fmtTs(chunk.offsetSec || 0)}]</span>{" "}
+                <span className="timestamp">
+                  [{formatTimestamp(chunk.offsetSec || 0)}]
+                </span>{" "}
                 {chunk.text}
               </p>
             ))
@@ -157,14 +145,18 @@ export default function NoteDetail({ noteId, onBack }) {
           onClick={handleSummarize}
           disabled={summarizing || !note.transcript}
         >
-          {summarizing ? "Summarizing…" : "Summarize"}
+          {summarizing ? "Summarizing..." : "Summarize"}
         </button>
         <button className="btn secondary" onClick={handleExport}>
           Export to Markdown
         </button>
       </div>
 
-      {summary && (
+      {summaryError && (
+        <div className="error-banner">{summaryError}</div>
+      )}
+
+      {summary && !summaryError && (
         <section className="summary-section">
           <h3>Summary</h3>
           <div className="summary-text">{summary}</div>

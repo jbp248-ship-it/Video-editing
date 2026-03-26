@@ -1,28 +1,51 @@
 /**
  * Background service worker — the brain of the extension.
  *
- * Orchestrates:
- *   1. Tab audio capture via chrome.tabCapture + offscreen document
- *   2. Whisper model loading (WebGPU) and sequential inference queue
- *   3. IndexedDB note persistence with timestamped chunks
- *   4. Keep-alive heartbeat via chrome.alarms (survives 90-min lectures)
- *   5. Smart summary generation via window.ai (Gemini Nano)
- *   6. Message relay: offscreen doc ↔ side panel
+ * Robustness features:
+ *   - Tab close detection via chrome.tabs.onRemoved
+ *   - Audio silence timeout (10s of no chunks → auto-stop)
+ *   - Recording state machine (prevents race conditions)
+ *   - Inference queue with backpressure (max 120 chunks)
+ *   - Keep-alive heartbeat via chrome.alarms
+ *   - Cleanup of failed notes on startup
+ *   - All message handlers return proper responses
+ *   - Model retry after failure (via resetModel)
  */
 
-import { loadWhisper, transcribe, isModelReady } from "../inference/whisper-pipeline.js";
-import { createNote, appendTranscript, updateNote, getNote } from "../storage/db.js";
+import {
+  loadWhisper, transcribe, isModelReady, getModelState, resetModel,
+} from "../inference/whisper-pipeline.js";
+import {
+  createNote, appendTranscript, updateNote, getNote,
+  cleanupFailedNotes,
+} from "../storage/db.js";
+import {
+  HEARTBEAT_ALARM, HEARTBEAT_PERIOD_MIN,
+  MAX_QUEUE_DEPTH, AUDIO_SILENCE_TIMEOUT_MS,
+  formatTimestamp,
+} from "../utils/constants.js";
+import { noteToMarkdown } from "../utils/export-markdown.js";
 
 // ══════════════════════════════════════════════════════════════════════
-//  STATE
+//  RECORDING STATE MACHINE
+//
+//  States: "idle" → "starting" → "recording" → "stopping" → "idle"
+//
+//  This prevents race conditions from rapid Start/Stop clicks or
+//  concurrent message handling.
 // ══════════════════════════════════════════════════════════════════════
 
+let recordingState = "idle"; // "idle" | "starting" | "recording" | "stopping"
 let currentNoteId = null;
-let recording = false;
-let recordingStartTime = 0; // Date.now() when recording began
+let recordingTabId = null;
+let recordingStartTime = 0;
+let lastAudioChunkTime = 0; // for silence timeout detection
+
+function canStartRecording() { return recordingState === "idle"; }
+function canStopRecording() { return recordingState === "recording"; }
 
 // ══════════════════════════════════════════════════════════════════════
-//  SIDE PANEL — open on action click
+//  SIDE PANEL
 // ══════════════════════════════════════════════════════════════════════
 
 chrome.sidePanel
@@ -31,59 +54,83 @@ chrome.sidePanel
 
 // ══════════════════════════════════════════════════════════════════════
 //  KEEP-ALIVE HEARTBEAT
-//
-//  Chrome suspends service workers after ~30 s of inactivity.
-//  During a 90-minute lecture, the worker MUST stay alive to process
-//  the inference queue. We use chrome.alarms (minimum period = 0.33 min
-//  ≈ 20 s) as the most reliable keep-alive mechanism.
 // ══════════════════════════════════════════════════════════════════════
 
-const HEARTBEAT_ALARM = "keep-alive-heartbeat";
-
 function startHeartbeat() {
-  chrome.alarms.create(HEARTBEAT_ALARM, {
-    periodInMinutes: 20 / 60, // every 20 seconds
-  });
-  console.log("[SW] Heartbeat started — worker will stay alive.");
+  chrome.alarms.create(HEARTBEAT_ALARM, { periodInMinutes: HEARTBEAT_PERIOD_MIN });
 }
 
 function stopHeartbeat() {
   chrome.alarms.clear(HEARTBEAT_ALARM);
-  console.log("[SW] Heartbeat stopped.");
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === HEARTBEAT_ALARM) {
-    // Just touching the listener is enough to reset the SW idle timer.
-    // Log queue depth for debugging long sessions.
-    if (recording) {
-      console.log(
-        `[SW] Heartbeat — recording active, queue depth: ${inferenceQueue.length}`
-      );
+  if (alarm.name !== HEARTBEAT_ALARM) return;
+
+  if (recordingState === "recording") {
+    // Check for audio silence timeout
+    const elapsed = Date.now() - lastAudioChunkTime;
+    if (lastAudioChunkTime > 0 && elapsed > AUDIO_SILENCE_TIMEOUT_MS) {
+      console.warn(`[SW] No audio for ${Math.round(elapsed / 1000)}s — auto-stopping.`);
+      handleStopRecording("silence-timeout");
+      return;
     }
+
+    console.log(
+      `[SW] Heartbeat — state: ${recordingState}, queue: ${inferenceQueue.length}, ` +
+      `processed: ${totalChunksProcessed}`
+    );
   }
 });
 
 // ══════════════════════════════════════════════════════════════════════
-//  MODEL PRELOAD
+//  TAB CLOSE DETECTION
+//
+//  If the user closes the tab being recorded, we auto-stop.
 // ══════════════════════════════════════════════════════════════════════
 
-chrome.runtime.onInstalled.addListener(() => initModel());
-chrome.runtime.onStartup.addListener(() => initModel());
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === recordingTabId && recordingState === "recording") {
+    console.warn(`[SW] Recording tab ${tabId} was closed — auto-stopping.`);
+    handleStopRecording("tab-closed");
+  }
+});
+
+// Also detect tab navigation (URL change) — the stream will die
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (
+    tabId === recordingTabId &&
+    recordingState === "recording" &&
+    changeInfo.url
+  ) {
+    console.warn(`[SW] Recording tab navigated — auto-stopping.`);
+    handleStopRecording("tab-navigated");
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  MODEL PRELOAD + STARTUP CLEANUP
+// ══════════════════════════════════════════════════════════════════════
+
+chrome.runtime.onInstalled.addListener(() => { startupTasks(); });
+chrome.runtime.onStartup.addListener(() => { startupTasks(); });
+
+async function startupTasks() {
+  // Clean up notes from previous failed recordings
+  cleanupFailedNotes().catch(console.error);
+  // Preload the model
+  initModel();
+}
 
 async function initModel() {
   broadcast({ type: "model-status", status: "loading", progress: 0 });
   try {
     await loadWhisper((p) => {
-      broadcast({
-        type: "model-status",
-        status: p.status,
-        progress: p.progress,
-      });
+      broadcast({ type: "model-status", status: p.status, progress: p.progress });
     });
   } catch (err) {
-    console.error("[SW] Model load failed:", err);
-    broadcast({ type: "model-status", status: "error", progress: 0 });
+    console.error("[SW] Model load failed:", err.message);
+    broadcast({ type: "model-status", status: "error", error: err.message, progress: 0 });
   }
 }
 
@@ -93,19 +140,26 @@ async function initModel() {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   switch (msg.type) {
-    // ── Recording controls (from side panel) ──
+    // ── Recording controls ──
     case "start-recording":
       handleStartRecording()
         .then(() => sendResponse({ ok: true }))
-        .catch((err) => sendResponse({ ok: false, error: err.message }));
-      return true; // async
+        .catch((err) => {
+          broadcast({
+            type: "recording-error",
+            noteId: currentNoteId,
+            error: err.message,
+          });
+          sendResponse({ ok: false, error: err.message });
+        });
+      return true;
 
     case "stop-recording":
-      handleStopRecording();
+      handleStopRecording("user-requested");
       sendResponse({ ok: true });
       break;
 
-    // ── Audio data (from offscreen document) ──
+    // ── Audio data (from offscreen) ──
     case "audio-chunk":
       handleAudioChunk(msg.audio, msg.chunkIndex);
       break;
@@ -115,26 +169,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
 
     case "capture-error":
-      console.error("[SW] Capture error:", msg.error);
-      recording = false;
-      stopHeartbeat();
-      broadcast({
-        type: "recording-error",
-        noteId: currentNoteId,
-        error: msg.error,
+      onCaptureError(msg.error);
+      break;
+
+    // ── Queries ──
+    case "get-model-status": {
+      const ms = getModelState();
+      sendResponse({
+        status: isModelReady() ? "ready" : ms.state,
+        error: ms.error,
       });
       break;
+    }
 
-    // ── Side panel queries ──
-    case "get-model-status":
-      sendResponse({ status: isModelReady() ? "ready" : "idle" });
+    case "retry-model-load":
+      resetModel();
+      initModel();
+      sendResponse({ ok: true });
       break;
-
-    case "generate-summary":
-      generateSmartSummary(msg.transcript)
-        .then((summary) => sendResponse({ ok: true, summary }))
-        .catch((err) => sendResponse({ ok: false, error: err.message }));
-      return true; // async
 
     case "export-markdown":
       handleExportMarkdown(msg.noteId)
@@ -149,80 +201,130 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ══════════════════════════════════════════════════════════════════════
 
 async function handleStartRecording() {
-  if (recording) return;
-
-  // 1. Get the active tab
-  const [tab] = await chrome.tabs.query({
-    active: true,
-    currentWindow: true,
-  });
-  if (!tab) throw new Error("No active tab");
-
-  // 2. Ensure Whisper is loaded
-  if (!isModelReady()) {
-    await loadWhisper((p) => {
-      broadcast({
-        type: "model-status",
-        status: p.status,
-        progress: p.progress,
-      });
-    });
+  if (!canStartRecording()) {
+    throw new Error(`Cannot start recording (current state: ${recordingState})`);
   }
 
-  // 3. Create note in IndexedDB
-  currentNoteId = await createNote({ url: tab.url, title: tab.title });
-  recordingStartTime = Date.now();
+  recordingState = "starting";
 
-  // 4. Get tab capture stream ID
-  const streamId = await chrome.tabCapture.getMediaStreamId({
-    targetTabId: tab.id,
-  });
+  try {
+    // 1. Get active tab
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) {
+      throw new Error("No active tab found");
+    }
+    recordingTabId = tab.id;
 
-  // 5. Create offscreen document
-  await ensureOffscreenDocument();
+    // 2. Load model if needed
+    if (!isModelReady()) {
+      const modelState = getModelState();
+      if (modelState.state === "error") {
+        resetModel(); // allow retry
+      }
+      await loadWhisper((p) => {
+        broadcast({ type: "model-status", status: p.status, progress: p.progress });
+      });
+    }
 
-  // 6. Start capture
-  await chrome.runtime.sendMessage({
-    type: "start-capture",
-    streamId,
-  });
+    // 3. Create note
+    currentNoteId = await createNote({ url: tab.url, title: tab.title });
+    recordingStartTime = Date.now();
 
-  // 7. Start keep-alive heartbeat
-  recording = true;
-  startHeartbeat();
+    // 4. Get stream ID
+    const streamId = await chrome.tabCapture.getMediaStreamId({
+      targetTabId: tab.id,
+    });
 
-  broadcast({ type: "recording-started", noteId: currentNoteId });
-  console.log(`[SW] Recording started — noteId: ${currentNoteId}`);
+    // 5. Create offscreen document
+    await ensureOffscreenDocument();
+
+    // 6. Start capture
+    const response = await chrome.runtime.sendMessage({
+      type: "start-capture",
+      streamId,
+    });
+
+    if (response && !response.ok) {
+      throw new Error(response.error || "Offscreen capture failed");
+    }
+
+    // 7. Activate
+    recordingState = "recording";
+    lastAudioChunkTime = Date.now();
+    startHeartbeat();
+
+    // Reset inference queue
+    inferenceQueue.length = 0;
+    totalChunksProcessed = 0;
+    inferenceRunning = false;
+
+    broadcast({ type: "recording-started", noteId: currentNoteId });
+    console.log(`[SW] Recording started — note ${currentNoteId}, tab ${tab.id}`);
+
+  } catch (err) {
+    // Roll back to idle on any failure
+    recordingState = "idle";
+    recordingTabId = null;
+
+    // Mark the note as failed if it was created
+    if (currentNoteId) {
+      updateNote(currentNoteId, { status: "error" }).catch(console.error);
+    }
+
+    throw err;
+  }
 }
 
-function handleStopRecording() {
-  if (!recording) return;
-  chrome.runtime.sendMessage({ type: "stop-capture" });
+function handleStopRecording(reason = "user-requested") {
+  if (!canStopRecording()) return;
+
+  recordingState = "stopping";
+  console.log(`[SW] Stopping recording (reason: ${reason})`);
+
+  chrome.runtime.sendMessage({ type: "stop-capture" }).catch(() => {
+    // Offscreen doc might already be gone (e.g., tab close)
+    onCaptureStopped();
+  });
 }
 
 function onCaptureStopped() {
-  const wasRecording = recording;
-  recording = false;
+  const wasActive = recordingState === "recording" || recordingState === "stopping";
+  recordingState = "idle";
   stopHeartbeat();
 
-  // Compute duration
-  if (wasRecording && currentNoteId) {
+  if (wasActive && currentNoteId) {
     const durationSec = Math.round((Date.now() - recordingStartTime) / 1000);
-    updateNote(currentNoteId, { duration: durationSec }).catch(console.error);
+    updateNote(currentNoteId, {
+      duration: durationSec,
+      status: "complete",
+    }).catch(console.error);
   }
 
+  recordingTabId = null;
   broadcast({ type: "recording-stopped", noteId: currentNoteId });
   console.log("[SW] Recording stopped.");
 }
 
+function onCaptureError(errorMessage) {
+  console.error("[SW] Capture error:", errorMessage);
+
+  recordingState = "idle";
+  stopHeartbeat();
+  recordingTabId = null;
+
+  if (currentNoteId) {
+    updateNote(currentNoteId, { status: "error" }).catch(console.error);
+  }
+
+  broadcast({
+    type: "recording-error",
+    noteId: currentNoteId,
+    error: errorMessage,
+  });
+}
+
 // ══════════════════════════════════════════════════════════════════════
-//  INFERENCE QUEUE
-//
-//  Whisper inference is slower than real-time on most hardware.
-//  If a new 1-second audio chunk arrives while the model is still
-//  processing the previous one, we queue it. No audio is ever dropped.
-//
-//  Queue stats are logged on every heartbeat tick for observability.
+//  INFERENCE QUEUE WITH BACKPRESSURE
 // ══════════════════════════════════════════════════════════════════════
 
 const inferenceQueue = [];
@@ -230,11 +332,20 @@ let inferenceRunning = false;
 let totalChunksProcessed = 0;
 
 function handleAudioChunk(audioArray, chunkIndex) {
-  const audio = new Float32Array(audioArray);
+  lastAudioChunkTime = Date.now();
 
-  // Compute the wall-clock offset of this chunk relative to recording start.
-  // chunkIndex is a monotonic counter from the offscreen chunker (1 chunk = 1 s).
-  const offsetSec = chunkIndex; // chunk 0 = 0s, chunk 1 = 1s, etc.
+  const audio = new Float32Array(audioArray);
+  const offsetSec = chunkIndex;
+
+  // Backpressure: if queue is too deep, drop the oldest chunk
+  // (better to lose old audio than overflow memory)
+  if (inferenceQueue.length >= MAX_QUEUE_DEPTH) {
+    const dropped = inferenceQueue.shift();
+    console.warn(
+      `[SW] Queue full (${MAX_QUEUE_DEPTH}) — dropped chunk at ${dropped.offsetSec}s`
+    );
+    broadcast({ type: "queue-warning", depth: inferenceQueue.length });
+  }
 
   inferenceQueue.push({ audio, offsetSec });
 
@@ -253,7 +364,6 @@ async function drainQueue() {
       const { text, chunks } = await transcribe(audio);
 
       if (text && currentNoteId) {
-        // Tag each Whisper chunk with the wall-clock offset
         const taggedChunks = (chunks || []).map((c) => ({
           ...c,
           offsetSec: offsetSec + (c.timestamp?.[0] || 0),
@@ -266,13 +376,14 @@ async function drainQueue() {
           noteId: currentNoteId,
           text,
           offsetSec,
+          queueDepth: inferenceQueue.length,
         });
 
         totalChunksProcessed++;
       }
     } catch (err) {
-      console.error("[SW] Transcription error:", err);
-      // Don't break the loop — keep processing remaining chunks
+      console.error("[SW] Transcription error:", err.message);
+      // Continue processing — don't let one bad chunk kill the session
     }
   }
 
@@ -280,154 +391,17 @@ async function drainQueue() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-//  WINDOW.AI INTEGRATION — Smart Summary (Gemini Nano)
-//
-//  window.ai is only available in page/panel contexts, not in service
-//  workers. This helper is designed to be called FROM the side panel
-//  (which has window.ai access) via a message. But we also expose it
-//  so the service worker can delegate to an offscreen doc if needed.
-//
-//  The side panel calls this indirectly; the actual window.ai call
-//  happens in the panel. We provide the optimized prompt here so it's
-//  centralized and consistent.
+//  EXPORT
 // ══════════════════════════════════════════════════════════════════════
 
-const SUMMARY_SYSTEM_PROMPT = `You are an expert academic note-taker. Analyze the following lecture transcript and produce a structured summary in this exact format:
-
-## Core Thesis
-[One clear sentence stating the main argument or topic of the lecture]
-
-## Three Key Supporting Points
-1. [First key point with a brief explanation]
-2. [Second key point with a brief explanation]
-3. [Third key point with a brief explanation]
-
-## Unresolved Questions
-- [Any questions raised but not fully answered in the lecture]
-- [Areas that need further exploration]
-
-Be concise but thorough. Use the speaker's own terminology where possible.`;
-
-/**
- * Generate a structured summary of a transcript.
- *
- * Tries window.ai (Gemini Nano) first. Since window.ai isn't available
- * in service workers, this function is called from the side panel which
- * passes the result back. The service worker stores the prompt config.
- *
- * @param {string} transcript - The full transcript text
- * @returns {Promise<string>} - The structured summary
- */
-export async function generateSmartSummary(transcript) {
-  if (!transcript || transcript.trim().length === 0) {
-    throw new Error("No transcript to summarize");
-  }
-
-  // Truncate very long transcripts to avoid token limits (~4k words max)
-  const maxWords = 4000;
-  const words = transcript.split(/\s+/);
-  const truncated =
-    words.length > maxWords
-      ? words.slice(0, maxWords).join(" ") + "\n\n[Transcript truncated for summary]"
-      : transcript;
-
-  // Return the prompt config for the side panel to execute
-  // (window.ai is not available in service workers)
-  return {
-    systemPrompt: SUMMARY_SYSTEM_PROMPT,
-    userPrompt: truncated,
-  };
-}
-
-/**
- * Returns the summary prompt for use by the side panel's window.ai call.
- */
-export function getSummaryPrompt() {
-  return SUMMARY_SYSTEM_PROMPT;
-}
-
-// ══════════════════════════════════════════════════════════════════════
-//  EXPORT — Timestamped Markdown
-// ══════════════════════════════════════════════════════════════════════
-
-/**
- * Build a properly formatted Markdown file from a note, with timestamps.
- *
- * Format:
- *   [00:12:30] Today we discuss the implications of...
- *
- * @param {number} noteId
- * @returns {Promise<string>} Markdown string
- */
 async function handleExportMarkdown(noteId) {
   const note = await getNote(noteId);
   if (!note) throw new Error(`Note ${noteId} not found`);
-
-  const date = new Date(note.date).toISOString().split("T")[0];
-  const durationStr = formatTimestamp(note.duration || 0);
-
-  const lines = [
-    `# ${note.title || "Untitled Note"}`,
-    "",
-    `| Field | Value |`,
-    `|-------|-------|`,
-    `| **Date** | ${date} |`,
-    note.courseName ? `| **Course** | ${note.courseName} |` : null,
-    note.url ? `| **Source** | ${note.url} |` : null,
-    `| **Duration** | ${durationStr} |`,
-    "",
-    "---",
-    "",
-    "## Transcript",
-    "",
-  ];
-
-  // Build timestamped transcript from chunks
-  if (note.chunks && note.chunks.length > 0) {
-    for (const chunk of note.chunks) {
-      const ts = formatTimestamp(chunk.offsetSec || 0);
-      const text = (chunk.text || "").trim();
-      if (text) {
-        lines.push(`\`[${ts}]\` ${text}`);
-        lines.push("");
-      }
-    }
-  } else if (note.transcript) {
-    // Fallback: no chunks, just raw transcript
-    lines.push(note.transcript);
-    lines.push("");
-  } else {
-    lines.push("_No transcript available._");
-    lines.push("");
-  }
-
-  // Append summary if present
-  if (note.summary) {
-    lines.push("---");
-    lines.push("");
-    lines.push("## Summary");
-    lines.push("");
-    lines.push(note.summary);
-    lines.push("");
-  }
-
-  return lines.filter((l) => l !== null).join("\n");
-}
-
-/**
- * Convert seconds to HH:MM:SS format.
- * @param {number} totalSeconds
- * @returns {string} e.g. "01:23:45"
- */
-function formatTimestamp(totalSeconds) {
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = Math.floor(totalSeconds % 60);
-  return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
+  return noteToMarkdown(note);
 }
 
 // ══════════════════════════════════════════════════════════════════════
-//  OFFSCREEN DOCUMENT MANAGEMENT
+//  OFFSCREEN DOCUMENT
 // ══════════════════════════════════════════════════════════════════════
 
 async function ensureOffscreenDocument() {
@@ -440,8 +414,7 @@ async function ensureOffscreenDocument() {
   await chrome.offscreen.createDocument({
     url: chrome.runtime.getURL("src/offscreen/offscreen.html"),
     reasons: ["USER_MEDIA"],
-    justification:
-      "Tab audio capture requires AudioContext (unavailable in service workers)",
+    justification: "Tab audio capture requires AudioContext (unavailable in service workers)",
   });
 }
 
@@ -450,9 +423,7 @@ async function ensureOffscreenDocument() {
 // ══════════════════════════════════════════════════════════════════════
 
 function broadcast(msg) {
-  chrome.runtime.sendMessage(msg).catch(() => {
-    // No listeners — side panel may be closed
-  });
+  chrome.runtime.sendMessage(msg).catch(() => {});
 }
 
 console.log("[AI Note Taker] Service worker registered.");
