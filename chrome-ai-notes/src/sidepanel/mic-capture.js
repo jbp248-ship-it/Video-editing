@@ -49,21 +49,27 @@ function onWorkletSamples(samples) {
 }
 
 function shipChunk() {
+  // Convert to Array for chrome.runtime.sendMessage compatibility.
+  // Float32Array structured clone doesn't work reliably from side panel → SW.
+  const data = Array.from(chunkBuffer.subarray(0, CHUNK_FRAMES));
+  console.log(`[MicCapture] Shipping chunk #${chunkIndex}: ${data.length} samples`);
   chrome.runtime.sendMessage({
     type: "audio-chunk",
-    audio: chunkBuffer.slice(0, CHUNK_FRAMES),
+    audio: data,
     chunkIndex: chunkIndex++,
-  }).catch(() => {});
+  }).catch((err) => console.warn("[MicCapture] Send failed:", err));
   chunkWriteIdx = 0;
 }
 
 function flushChunker() {
   if (chunkWriteIdx > 0) {
+    const data = Array.from(chunkBuffer.subarray(0, chunkWriteIdx));
+    console.log(`[MicCapture] Flushing ${data.length} samples`);
     chrome.runtime.sendMessage({
       type: "audio-chunk",
-      audio: chunkBuffer.slice(0, chunkWriteIdx),
+      audio: data,
       chunkIndex: chunkIndex++,
-    }).catch(() => {});
+    }).catch((err) => console.warn("[MicCapture] Flush send failed:", err));
     chunkWriteIdx = 0;
   }
 }

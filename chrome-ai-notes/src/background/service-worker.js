@@ -145,6 +145,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       break;
 
     case "audio-chunk":
+      console.log(`[SW] Received audio-chunk: type=${typeof msg.audio}, isArray=${Array.isArray(msg.audio)}, length=${msg.audio?.length}`);
       handleAudioChunk(msg.audio, msg.chunkIndex);
       break;
 
