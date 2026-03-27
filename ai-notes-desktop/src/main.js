@@ -205,6 +205,9 @@ function sendToRenderer(channel, data) {
   }
 }
 
+// Suppress noisy Chromium pipe errors in console
+app.commandLine.appendSwitch("disable-features", "MediaRouter");
+
 app.whenReady().then(() => {
   createWindow();
   startWebSocketServer();
