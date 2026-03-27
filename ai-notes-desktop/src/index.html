@@ -83,6 +83,26 @@
 
     .add-course-btn:hover { background: #3b4f6b; color: #e2e8f0; }
 
+    .extension-status {
+      padding: 10px 16px;
+      font-size: 11px;
+      color: #64748b;
+      border-top: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ext-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .ext-dot.disconnected { background: #475569; }
+    .ext-dot.connected { background: #22c55e; }
+
     /* ── Main area ── */
     .main {
       flex: 1;
@@ -296,6 +316,9 @@
     </div>
     <div class="course-list" id="courseList"></div>
     <div class="add-course-btn" id="addCourseBtn">+ Add Course</div>
+    <div class="extension-status" id="extStatus">
+      <span class="ext-dot disconnected"></span> Extension: not connected
+    </div>
   </div>
 
   <div class="main">

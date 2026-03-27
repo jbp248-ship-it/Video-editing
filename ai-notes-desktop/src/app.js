@@ -499,6 +499,87 @@ function formatTime(totalSeconds) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+//  CHROME EXTENSION BRIDGE
+//
+//  The desktop app runs a WebSocket server on localhost:8765.
+//  The Chrome extension connects and sends transcript data.
+//  This handler receives that data and creates/updates notes.
+// ══════════════════════════════════════════════════════════════════
+
+let extensionConnected = false;
+let extensionNoteId = null;
+
+if (window.electronAPI) {
+  window.electronAPI.onExtensionConnected((connected) => {
+    extensionConnected = connected;
+    const el = document.getElementById("extStatus");
+    if (connected) {
+      el.innerHTML = '<span class="ext-dot connected"></span> Extension: connected';
+    } else {
+      el.innerHTML = '<span class="ext-dot disconnected"></span> Extension: not connected';
+    }
+    renderCourses();
+  });
+
+  window.electronAPI.onExtensionMessage((msg) => {
+    switch (msg.type) {
+      case "start-session": {
+        // Extension started recording — create a note for it
+        const course = msg.course || "Browser Recordings";
+        if (!data.courses.includes(course)) {
+          data.courses.push(course);
+        }
+
+        const noteId = "ext-" + Date.now().toString(36);
+        const now = new Date();
+        extensionNoteId = noteId;
+
+        data.notes.push({
+          id: noteId,
+          course,
+          title: msg.title || `${course} — ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
+          date: now.toISOString(),
+          transcript: "",
+          chunks: [],
+          duration: 0,
+          source: "extension",
+        });
+        saveData(data);
+        renderCourses();
+        renderContent();
+        break;
+      }
+
+      case "transcript-chunk": {
+        // Extension sent a new transcript chunk
+        if (!extensionNoteId) break;
+        const note = data.notes.find((n) => n.id === extensionNoteId);
+        if (!note) break;
+
+        note.transcript += (note.transcript ? " " : "") + msg.text;
+        note.chunks.push({
+          text: msg.text,
+          time: msg.offsetSec || 0,
+        });
+        note.duration = Math.round(msg.offsetSec || note.duration);
+        saveData(data);
+
+        // If we're viewing this note's course, refresh
+        if (!activeNote) renderContent();
+        break;
+      }
+
+      case "stop-session": {
+        extensionNoteId = null;
+        renderCourses();
+        renderContent();
+        break;
+      }
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════════════════════
 

@@ -9,7 +9,8 @@
     "build-win": "electron-builder --win"
   },
   "dependencies": {
-    "electron-store": "^10.0.0"
+    "electron-store": "^10.0.0",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "electron": "^33.3.1",

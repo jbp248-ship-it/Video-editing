@@ -13,6 +13,7 @@
 import {
   loadWhisper, transcribe, isModelReady, getModelState, resetModel,
 } from "../inference/whisper-pipeline.js";
+import { sendToDesktop, connectToDesktop } from "../utils/desktop-bridge.js";
 import {
   createNote, appendTranscript, updateNote, getNote,
   cleanupFailedNotes,
@@ -236,6 +237,12 @@ async function handleStartRecording() {
     inferenceRunning = false;
 
     broadcast({ type: "recording-started", noteId: currentNoteId });
+    // Forward to desktop app if connected
+    sendToDesktop({
+      type: "start-session",
+      title: tab?.title || "Microphone Recording",
+      course: "Browser Recordings",
+    });
     console.log(`[SW] Recording started — note ${currentNoteId}, tab ${tab?.id || "none"}`);
 
   } catch (err) {
@@ -292,6 +299,7 @@ function onCaptureStopped() {
   const noteForDrain = currentNoteId;
   currentNoteId = null;
   broadcast({ type: "recording-stopped", noteId: stoppedNoteId });
+  sendToDesktop({ type: "stop-session" });
 
   // If there are queued chunks from this session, drain them.
   // We pass the pinned noteId so drainQueue writes to the correct note
@@ -389,6 +397,9 @@ async function drainQueue(pinnedNoteId) {
           offsetSec,
           queueDepth: inferenceQueue.length,
         });
+
+        // Forward to desktop app
+        sendToDesktop({ type: "transcript-chunk", text, offsetSec });
 
         totalChunksProcessed++;
       }
