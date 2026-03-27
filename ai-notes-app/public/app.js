@@ -49,6 +49,8 @@ let view="home"; // "home" | "course" | "note" | "live"
 let activeCourse=null, activeNote=null;
 let rec=false, noteId=null, startT=0, lines=[], interim="", wordCount=0, query="";
 let collapsedDays = new Set();
+let selectedDays = new Set(); // multi-day selection for study mode
+let selectMode = false;
 let saveDebounce=null;
 const ct=$("content"), recBtn=$("recBtn"), tmr=$("timer"), mtr=$("meter"), mtrF=$("meterFill"), wcEl=$("wordCount");
 
@@ -187,7 +189,6 @@ function renderCourseNotes() {
     return;
   }
 
-  // Group by day
   const days = {};
   courseNotes.forEach(n => {
     const day = new Date(n.date).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
@@ -195,19 +196,38 @@ function renderCourseNotes() {
     days[day].push(n);
   });
 
-  let h = `<div class="section-title">${esc(activeCourse)} — ${courseNotes.length} lecture${courseNotes.length!==1?"s":""}</div>`;
+  // Study mode bar
+  let h = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+    <div class="section-title" style="margin:0">${esc(activeCourse)} — ${courseNotes.length} lecture${courseNotes.length!==1?"s":""}</div>
+    <div style="display:flex;gap:8px;align-items:center">`;
+
+  if (selectedDays.size > 0) {
+    const selNotes = courseNotes.filter(n => {
+      const d = new Date(n.date).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+      return selectedDays.has(d);
+    });
+    const selWords = selNotes.reduce((a,n)=>a+(n.transcript?n.transcript.split(/\s+/).filter(Boolean).length:0),0);
+    h += `<span style="font-size:12px;color:#D97757">${selectedDays.size} day${selectedDays.size>1?"s":""} selected &middot; ${selWords.toLocaleString()} words</span>`;
+    h += `<button class="btn btn-pri" id="studyBtn">Study Selected</button>`;
+    h += `<button class="btn" id="clearSel">Clear</button>`;
+  }
+  h += `<button class="btn" id="selToggle">${selectMode?"Done":"Select Days"}</button>`;
+  h += `</div></div>`;
 
   Object.entries(days).forEach(([day, dayNotes]) => {
     const collapsed = collapsedDays.has(day);
+    const selected = selectedDays.has(day);
     const tw = dayNotes.reduce((a,n)=>a+(n.transcript?n.transcript.split(/\s+/).filter(Boolean).length:0),0);
     const td = dayNotes.reduce((a,n)=>a+(n.duration||0),0);
 
-    h += `<div class="day-group"><div class="day-hdr" data-day="${esc(day)}">
-      <span class="day-arrow ${collapsed?"":"open"}">&#9654;</span>
-      <span class="day-title">${esc(day)}</span>
-      <span class="day-stats">${dayNotes.length} lecture${dayNotes.length>1?"s":""} &middot; ${tw.toLocaleString()} words &middot; ${fmt(td)}</span></div>`;
+    h += `<div class="day-group ${selected?"day-selected":""}">
+      <div class="day-hdr" data-day="${esc(day)}">
+        ${selectMode ? `<input type="checkbox" class="day-check" data-day="${esc(day)}" ${selected?"checked":""} />` : `<span class="day-arrow ${collapsed?"":"open"}">&#9654;</span>`}
+        <span class="day-title">${esc(day)}</span>
+        <span class="day-stats">${dayNotes.length} lecture${dayNotes.length>1?"s":""} &middot; ${tw.toLocaleString()} words &middot; ${fmt(td)}</span>
+      </div>`;
 
-    if (!collapsed) dayNotes.forEach(n => {
+    if (!collapsed && !selectMode) dayNotes.forEach(n => {
       const wc=n.transcript?n.transcript.split(/\s+/).filter(Boolean).length:0;
       const time=new Date(n.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
       h += `<div class="note" data-id="${esc(n.id)}"><div class="note-top"><div class="note-info"><h3>${esc(n.title)}</h3><span class="note-time">${time}</span></div>
@@ -220,9 +240,26 @@ function renderCourseNotes() {
 
   ct.innerHTML = h;
 
-  ct.querySelectorAll(".day-hdr").forEach(el => el.addEventListener("click", () => {
-    const d=el.dataset.day; collapsedDays.has(d)?collapsedDays.delete(d):collapsedDays.add(d); renderCourseNotes();
+  // Select mode toggle
+  if ($("selToggle")) $("selToggle").onclick = () => { selectMode = !selectMode; if (!selectMode) selectedDays.clear(); renderCourseNotes(); };
+  if ($("clearSel")) $("clearSel").onclick = () => { selectedDays.clear(); renderCourseNotes(); };
+  if ($("studyBtn")) $("studyBtn").onclick = () => openStudyMode(courseNotes);
+
+  // Day checkboxes
+  ct.querySelectorAll(".day-check").forEach(el => el.addEventListener("change", () => {
+    const d = el.dataset.day;
+    if (el.checked) selectedDays.add(d); else selectedDays.delete(d);
+    renderCourseNotes();
   }));
+
+  // Day collapse (non-select mode)
+  if (!selectMode) {
+    ct.querySelectorAll(".day-hdr").forEach(el => el.addEventListener("click", e => {
+      if (e.target.classList.contains("day-check")) return;
+      const d = el.dataset.day; collapsedDays.has(d) ? collapsedDays.delete(d) : collapsedDays.add(d); renderCourseNotes();
+    }));
+  }
+
   ct.querySelectorAll(".note").forEach(el => el.addEventListener("click", e => {
     if(e.target.classList.contains("note-del"))return;
     activeNote=notes.find(n=>n.id===el.dataset.id); if(activeNote){view="note";renderBread();render();}
@@ -231,6 +268,57 @@ function renderCourseNotes() {
     e.stopPropagation();const n=notes.find(x=>x.id===el.dataset.id);
     if(n&&confirm(`Delete "${n.title}"?`)){await dbDel("notes",n.id);await reload();render();}
   }));
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  STUDY MODE — combine selected days into one view
+// ══════════════════════════════════════════════════════════════════
+function openStudyMode(courseNotes) {
+  const selNotes = courseNotes.filter(n => {
+    const d = new Date(n.date).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+    return selectedDays.has(d);
+  }).sort((a,b) => new Date(a.date) - new Date(b.date)); // chronological for study
+
+  const totalWords = selNotes.reduce((a,n) => a + (n.transcript ? n.transcript.split(/\s+/).filter(Boolean).length : 0), 0);
+  const totalDur = selNotes.reduce((a,n) => a + (n.duration || 0), 0);
+
+  let allText = "";
+  let h = `<div class="detail-hdr"><h2>Study Mode — ${selectedDays.size} Day${selectedDays.size>1?"s":""}</h2>
+    <div class="detail-meta"><span>${selNotes.length} lectures</span><span>${totalWords.toLocaleString()} words</span><span>${fmt(totalDur)} total</span><span class="tag">${esc(activeCourse)}</span></div>
+    <div class="detail-actions"><button class="btn" id="backStudy">&larr; Back</button><button class="btn btn-pri" id="copyStudy">Copy All Text</button><button class="btn" id="exportStudy">Export .md</button></div></div>`;
+
+  selNotes.forEach(n => {
+    const day = new Date(n.date).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+    const time = new Date(n.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+    allText += `\n\n## ${n.title} (${day} ${time})\n\n`;
+
+    h += `<div style="margin-bottom:16px"><div style="font-size:13px;font-weight:600;color:#D97757;margin-bottom:8px">${esc(n.title)} — ${day} ${time}</div>`;
+    h += `<div class="transcript-box" style="max-height:none">`;
+
+    if (n.chunks?.length) {
+      n.chunks.forEach(c => { h += `<span class="ts">[${fmt(c.time)}]</span> ${esc(c.text)}\n`; allText += `[${fmt(c.time)}] ${c.text}\n`; });
+    } else {
+      h += esc(n.transcript) || "No transcript";
+      allText += n.transcript || "";
+    }
+    h += `</div></div>`;
+  });
+
+  ct.innerHTML = h;
+
+  $("backStudy").onclick = () => { renderCourseNotes(); };
+  $("copyStudy").onclick = () => {
+    navigator.clipboard.writeText(allText.trim()).then(() => {
+      $("copyStudy").textContent = "Copied!";
+      setTimeout(() => $("copyStudy").textContent = "Copy All Text", 2000);
+    });
+  };
+  $("exportStudy").onclick = () => {
+    const blob = new Blob([`# Study Notes — ${activeCourse}\n\n${allText}`], {type:"text/markdown"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = `study-${activeCourse.replace(/[^a-zA-Z0-9]+/g,"-")}.md`;
+    a.click(); URL.revokeObjectURL(a.href);
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════
