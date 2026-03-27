@@ -1,59 +1,59 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
-const http = require("http");
-const fs = require("fs");
 const crypto = require("crypto");
+const { Worker } = require("worker_threads");
 const { WebSocketServer } = require("ws");
 
 let mainWindow;
 let wss;
-let httpServer;
+let whisperWorker;
 let isRecording = false;
 
 const AUTH_TOKEN = crypto.randomBytes(16).toString("hex");
 const WS_PORT = 8765;
-const HTTP_PORT = 8766;
 
-// ── Local HTTP server ──
-// Serves the app UI on localhost so that Chrome's Web Speech API works.
-// Electron's file:// protocol breaks the speech API in newer versions.
-function startHttpServer() {
-  const srcDir = path.join(__dirname);
-  const mimeTypes = {
-    ".html": "text/html",
-    ".js": "application/javascript",
-    ".css": "text/css",
-    ".png": "image/png",
-  };
+// ── Whisper Worker ──
+// Runs @huggingface/transformers in a Node.js worker thread.
+// The renderer sends audio chunks via IPC, the worker transcribes them.
 
-  httpServer = http.createServer((req, res) => {
-    let filePath = path.join(srcDir, req.url === "/" ? "index.html" : req.url);
-    const ext = path.extname(filePath);
-    const contentType = mimeTypes[ext] || "application/octet-stream";
+function startWhisperWorker() {
+  whisperWorker = new Worker(path.join(__dirname, "whisper-worker.js"));
 
-    fs.readFile(filePath, (err, data) => {
-      if (err) {
-        res.writeHead(404);
-        res.end("Not found");
-        return;
-      }
-      res.writeHead(200, { "Content-Type": contentType });
-      res.end(data);
-    });
+  whisperWorker.on("message", (msg) => {
+    // Forward all worker messages to the renderer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("whisper-message", msg);
+    }
   });
 
-  httpServer.listen(HTTP_PORT, "127.0.0.1", () => {
-    console.log(`[HTTP] Serving UI at http://127.0.0.1:${HTTP_PORT}`);
+  whisperWorker.on("error", (err) => {
+    console.error("[Whisper Worker] Error:", err.message);
   });
+
+  // Start loading the model immediately
+  whisperWorker.postMessage({ type: "load" });
 }
 
-// ── WebSocket Server ──
+// IPC: renderer sends audio to transcribe
+ipcMain.on("whisper-transcribe", (_event, data) => {
+  if (whisperWorker) {
+    whisperWorker.postMessage(data);
+  }
+});
+
+ipcMain.on("whisper-load", () => {
+  if (whisperWorker) {
+    whisperWorker.postMessage({ type: "load" });
+  }
+});
+
+// ── WebSocket Server (Chrome extension bridge) ──
+
 function startWebSocketServer() {
   wss = new WebSocketServer({ port: WS_PORT, host: "127.0.0.1" });
 
   wss.on("listening", () => {
-    console.log(`[WS] Server listening on ws://127.0.0.1:${WS_PORT}`);
-    console.log(`[WS] Auth token: ${AUTH_TOKEN}`);
+    console.log(`[WS] Server on ws://127.0.0.1:${WS_PORT}`);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("ws-auth-token", AUTH_TOKEN);
     }
@@ -73,7 +73,6 @@ function startWebSocketServer() {
               mainWindow.webContents.send("extension-connected", true);
             }
           } else {
-            ws.send(JSON.stringify({ type: "auth-failed" }));
             ws.close();
           }
           return;
@@ -81,9 +80,7 @@ function startWebSocketServer() {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("extension-message", msg);
         }
-      } catch (err) {
-        console.error("[WS] Bad message:", err.message);
-      }
+      } catch {}
     });
 
     ws.on("close", () => {
@@ -92,17 +89,12 @@ function startWebSocketServer() {
       }
     });
   });
-
-  wss.on("error", (err) => {
-    if (err.code === "EADDRINUSE") {
-      console.error(`[WS] Port ${WS_PORT} in use`);
-    }
-  });
 }
 
 ipcMain.on("recording-state", (_event, state) => { isRecording = state; });
 
 // ── Electron Window ──
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1000,
@@ -117,11 +109,8 @@ function createWindow() {
     },
   });
 
-  // Load from local HTTP server instead of file://
-  // This makes Web Speech API work properly
-  mainWindow.loadURL(`http://127.0.0.1:${HTTP_PORT}`);
+  mainWindow.loadFile(path.join(__dirname, "index.html"));
 
-  // Auto-grant microphone for localhost
   mainWindow.webContents.session.setPermissionRequestHandler(
     (webContents, permission, callback) => {
       callback(permission === "media");
@@ -135,7 +124,7 @@ function createWindow() {
         buttons: ["Stop Recording & Close", "Cancel"],
         defaultId: 1,
         title: "Recording in Progress",
-        message: "You are currently recording a lecture. Close anyway?",
+        message: "You are currently recording. Close anyway?",
       });
       if (choice === 1) e.preventDefault();
     }
@@ -143,14 +132,14 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  startHttpServer();
   createWindow();
+  startWhisperWorker();
   startWebSocketServer();
 });
 
 app.on("window-all-closed", () => {
+  if (whisperWorker) whisperWorker.terminate();
   if (wss) wss.close();
-  if (httpServer) httpServer.close();
   if (process.platform !== "darwin") app.quit();
 });
 

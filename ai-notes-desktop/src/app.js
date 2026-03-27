@@ -93,23 +93,7 @@ const modalInput = document.getElementById("modalInput");
 const modalCancel = document.getElementById("modalCancel");
 const modalOk = document.getElementById("modalOk");
 
-// ══════════════════════════════════════════════════════════════════
-//  NETWORK STATUS
-// ══════════════════════════════════════════════════════════════════
-
-let online = navigator.onLine;
-window.addEventListener("online", () => { online = true; updateNetworkUI(); });
-window.addEventListener("offline", () => { online = false; updateNetworkUI(); });
-
-function updateNetworkUI() {
-  const el = document.getElementById("networkStatus");
-  if (!el) return;
-  if (online) {
-    el.innerHTML = '<span class="net-dot online"></span> Online';
-  } else {
-    el.innerHTML = '<span class="net-dot offline"></span> Offline — transcription unavailable';
-  }
-}
+// Network status no longer needed — Whisper runs 100% offline
 
 // ══════════════════════════════════════════════════════════════════
 //  COURSE SIDEBAR
@@ -412,12 +396,61 @@ function renderLiveTranscript() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  RECORDING — Web Speech API
+//  WHISPER MODEL STATUS
 // ══════════════════════════════════════════════════════════════════
+
+let modelReady = false;
+let modelProgress = 0;
+
+if (window.electronAPI) {
+  window.electronAPI.onWhisperMessage((msg) => {
+    if (msg.type === "progress") {
+      modelProgress = msg.progress || 0;
+      updateModelStatus();
+    }
+    if (msg.type === "loaded") {
+      modelReady = true;
+      updateModelStatus();
+    }
+    if (msg.type === "error") {
+      console.error("[Whisper]", msg.error);
+      updateModelStatus();
+    }
+    if (msg.type === "result") {
+      onTranscriptionResult(msg);
+    }
+  });
+}
+
+function updateModelStatus() {
+  const el = document.getElementById("modelStatus");
+  if (!el) return;
+  if (modelReady) {
+    el.innerHTML = '<span class="net-dot online"></span> Whisper ready (offline)';
+  } else {
+    el.textContent = `Loading Whisper model... ${modelProgress}%`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  RECORDING — Local Whisper via Worker Thread
+//
+//  Audio pipeline:
+//    Mic → AudioContext → ScriptProcessor (downsample to 16kHz)
+//      → 3-second buffer → IPC → Worker Thread → Whisper → result
+//
+//  100% offline. No Google servers. No network dependency.
+// ══════════════════════════════════════════════════════════════════
+
+const TARGET_SR = 16000;
+const CHUNK_SEC = 3;
+const CHUNK_FRAMES = TARGET_SR * CHUNK_SEC;
+
+let chunkBuffer = [];
+let chunkId = 0;
 
 recordBtn.addEventListener("click", toggleRecording);
 
-// Keyboard shortcut: Ctrl+R
 document.addEventListener("keydown", (e) => {
   if (e.ctrlKey && e.key === "r") {
     e.preventDefault();
@@ -436,22 +469,14 @@ async function startRecording() {
     return;
   }
 
-  if (!online) {
-    if (!confirm("You are offline. Web Speech API requires internet for transcription. Record anyway? (Audio level will show, but no transcript will be generated.)")) {
-      return;
-    }
-  }
-
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    alert("Speech recognition is not supported.");
+  if (!modelReady) {
+    alert("Whisper model is still loading. Please wait for it to finish.");
     return;
   }
 
-  // Get single mic stream — shared between recognition and level meter
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (err) {
+  } catch {
     alert("Microphone access denied.");
     return;
   }
@@ -468,104 +493,71 @@ async function startRecording() {
   saveData(data);
   currentNoteId = noteId;
   liveLines = [];
-  interimText = "";
-
-  // Speech recognition
-  recognition = new SpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.lang = "en-US";
+  interimText = "Listening...";
+  chunkBuffer = [];
 
   recordingStartTime = Date.now();
-  let consecutiveErrors = 0;
-  let lastErrorTime = 0;
-
-  recognition.onresult = (event) => {
-    consecutiveErrors = 0;
-    const elapsed = (Date.now() - recordingStartTime) / 1000;
-
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const result = event.results[i];
-      const text = result[0].transcript.trim();
-
-      if (result.isFinal && text) {
-        liveLines.push({ text, time: elapsed });
-        interimText = "";
-
-        const note = data.notes.find((n) => n.id === currentNoteId);
-        if (note) {
-          note.transcript += (note.transcript ? " " : "") + text;
-          note.chunks.push({ text, time: elapsed });
-          note.duration = Math.round(elapsed);
-          saveData(data);
-        }
-      } else {
-        interimText = text;
-      }
-    }
-    renderLiveTranscript();
-  };
-
-  recognition.onerror = (event) => {
-    console.error("Speech error:", event.error);
-
-    if (event.error === "not-allowed") {
-      alert("Microphone access denied.");
-      stopRecording();
-      return;
-    }
-
-    // These are NORMAL — Chrome fires them constantly. Don't count them.
-    if (event.error === "no-speech" || event.error === "aborted") {
-      return; // Recognition will auto-restart via onend
-    }
-
-    // Only count real errors (network) that happen rapidly
-    const now = Date.now();
-    if (now - lastErrorTime < 2000) {
-      consecutiveErrors++;
-    } else {
-      consecutiveErrors = 1;
-    }
-    lastErrorTime = now;
-
-    if (event.error === "network" && consecutiveErrors <= 3) {
-      // Brief network hiccup — don't show anything, just let it restart
-      return;
-    }
-
-    if (event.error === "network" && consecutiveErrors > 3) {
-      interimText = "(Reconnecting...)";
-      renderLiveTranscript();
-    }
-
-    // Only give up after 30 rapid consecutive REAL errors
-    if (consecutiveErrors >= 30) {
-      interimText = "(Transcription paused — check your internet connection. Still recording audio level.)";
-      renderLiveTranscript();
-    }
-  };
-
-  recognition.onend = () => {
-    if (!recording) return;
-    // ALWAYS restart — onend fires constantly in Chrome (after every
-    // utterance, silence timeout, or error). This is normal.
-    const delay = consecutiveErrors > 5 ? 2000 : 100;
-    setTimeout(() => {
-      if (recording) {
-        try { recognition.start(); } catch {}
-      }
-    }, delay);
-  };
-
-  recognition.start();
   recording = true;
-
-  // Notify main process (for close confirmation)
   window.electronAPI?.setRecordingState?.(true);
 
-  // Level meter — uses the same mic stream
-  startAudioMeter();
+  // Audio capture + downsampling
+  audioContext = new AudioContext();
+  const source = audioContext.createMediaStreamSource(micStream);
+
+  // Analyser for level meter
+  analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+
+  // ScriptProcessor for audio capture (simpler than AudioWorklet in Electron)
+  const bufferSize = 4096;
+  const processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+  const ratio = audioContext.sampleRate / TARGET_SR;
+
+  source.connect(processor);
+  processor.connect(audioContext.destination);
+
+  processor.onaudioprocess = (e) => {
+    if (!recording) return;
+    const input = e.inputBuffer.getChannelData(0);
+
+    // Downsample to 16kHz via linear interpolation
+    const outputLen = Math.floor(input.length / ratio);
+    for (let i = 0; i < outputLen; i++) {
+      const pos = i * ratio;
+      const idx = Math.floor(pos);
+      const frac = pos - idx;
+      const s0 = input[idx] || 0;
+      const s1 = input[idx + 1] || s0;
+      chunkBuffer.push(s0 + frac * (s1 - s0));
+    }
+
+    // Ship chunk when we have enough
+    if (chunkBuffer.length >= CHUNK_FRAMES) {
+      const audio = chunkBuffer.splice(0, CHUNK_FRAMES);
+      const id = chunkId++;
+      interimText = "Transcribing...";
+      renderLiveTranscript();
+
+      window.electronAPI?.whisperTranscribe({
+        type: "transcribe",
+        id,
+        audio, // plain Array — worker converts to Float32Array
+      });
+    }
+  };
+
+  // Level meter animation
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  function tick() {
+    if (!recording) return;
+    analyser.getByteFrequencyData(buf);
+    let sum = 0;
+    for (let i = 0; i < buf.length; i++) sum += buf[i];
+    meterFill.style.width = `${Math.min(100, (sum / (buf.length * 255)) * 400)}%`;
+    levelAnimFrame = requestAnimationFrame(tick);
+  }
+  tick();
 
   // UI
   recordBtn.textContent = "Stop Recording (Ctrl+R)";
@@ -581,18 +573,46 @@ async function startRecording() {
   renderContent();
 }
 
+function onTranscriptionResult(msg) {
+  if (!msg.text || !currentNoteId) return;
+
+  const elapsed = (Date.now() - recordingStartTime) / 1000;
+  liveLines.push({ text: msg.text, time: elapsed });
+  interimText = "";
+
+  const note = data.notes.find((n) => n.id === currentNoteId);
+  if (note) {
+    note.transcript += (note.transcript ? " " : "") + msg.text;
+    note.chunks.push({ text: msg.text, time: elapsed });
+    note.duration = Math.round(elapsed);
+    saveData(data);
+  }
+
+  renderLiveTranscript();
+}
+
 function stopRecording() {
   recording = false;
   window.electronAPI?.setRecordingState?.(false);
 
-  if (recognition) {
-    recognition.onend = null;
-    recognition.stop();
-    recognition = null;
+  // Flush remaining audio
+  if (chunkBuffer.length > 0 && window.electronAPI) {
+    window.electronAPI.whisperTranscribe({
+      type: "transcribe",
+      id: chunkId++,
+      audio: chunkBuffer.splice(0),
+    });
   }
 
-  stopAudioMeter();
+  // Teardown
+  if (levelAnimFrame) cancelAnimationFrame(levelAnimFrame);
+  if (audioContext) audioContext.close().catch(() => {});
+  if (micStream) micStream.getTracks().forEach((t) => t.stop());
+  audioContext = null;
+  analyser = null;
+  micStream = null;
   clearInterval(timerInterval);
+  meterFill.style.width = "0%";
 
   const note = data.notes.find((n) => n.id === currentNoteId);
   if (note) {
@@ -609,45 +629,6 @@ function stopRecording() {
   currentNoteId = null;
   renderCourses();
   renderContent();
-}
-
-// ══════════════════════════════════════════════════════════════════
-//  AUDIO LEVEL METER — uses shared mic stream
-// ══════════════════════════════════════════════════════════════════
-
-function startAudioMeter() {
-  if (!micStream) return;
-  try {
-    audioContext = new AudioContext();
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
-    const source = audioContext.createMediaStreamSource(micStream);
-    source.connect(analyser);
-
-    const buf = new Uint8Array(analyser.frequencyBinCount);
-    function tick() {
-      if (!recording) return;
-      analyser.getByteFrequencyData(buf);
-      let sum = 0;
-      for (let i = 0; i < buf.length; i++) sum += buf[i];
-      const level = sum / (buf.length * 255);
-      meterFill.style.width = `${Math.min(100, level * 400)}%`;
-      levelAnimFrame = requestAnimationFrame(tick);
-    }
-    tick();
-  } catch (err) {
-    console.error("Audio meter error:", err);
-  }
-}
-
-function stopAudioMeter() {
-  if (levelAnimFrame) cancelAnimationFrame(levelAnimFrame);
-  if (audioContext) audioContext.close().catch(() => {});
-  if (micStream) micStream.getTracks().forEach((t) => t.stop());
-  audioContext = null;
-  analyser = null;
-  micStream = null;
-  meterFill.style.width = "0%";
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -754,4 +735,4 @@ if (window.electronAPI) {
 
 renderCourses();
 renderContent();
-updateNetworkUI();
+updateModelStatus();
