@@ -73,13 +73,42 @@ auth.onAuthStateChanged(user => {
 //  FIRESTORE — Cloud Storage (replaces IndexedDB)
 // ══════════════════════════════════════════════════════════════════
 
-async function getCourses() {
-  const snap = await userRef.collection("courses").get();
-  return snap.docs.map(d => d.id).sort();
+// Color palette for courses — soft warm tones
+const COURSE_COLORS = [
+  { bg: "#5C3D2E", accent: "#D97757", name: "Terracotta" },
+  { bg: "#2E4A5C", accent: "#5BA4CF", name: "Ocean" },
+  { bg: "#3D5C2E", accent: "#7BC47A", name: "Sage" },
+  { bg: "#5C4B2E", accent: "#E8B931", name: "Amber" },
+  { bg: "#4A2E5C", accent: "#B57ADB", name: "Lavender" },
+  { bg: "#5C2E3D", accent: "#DB7A99", name: "Rose" },
+  { bg: "#2E5C5C", accent: "#5CCFCF", name: "Teal" },
+  { bg: "#5C5C2E", accent: "#CFCF5C", name: "Olive" },
+];
+
+function getColorForCourse(index) {
+  return COURSE_COLORS[index % COURSE_COLORS.length];
 }
 
-async function addCourseDB(name) {
-  await userRef.collection("courses").doc(name).set({ created: Date.now() });
+async function getCourses() {
+  const snap = await userRef.collection("courses").get();
+  return snap.docs.map(d => ({ name: d.id, ...(d.data() || {}) })).sort((a,b) => a.name.localeCompare(b.name));
+}
+
+async function addCourseDB(name, colorIdx) {
+  await userRef.collection("courses").doc(name).set({ created: Date.now(), colorIdx: colorIdx || 0 });
+}
+
+async function renameCourseDB(oldName, newName) {
+  // Get old course data
+  const oldDoc = await userRef.collection("courses").doc(oldName).get();
+  const data = oldDoc.exists ? oldDoc.data() : { created: Date.now(), colorIdx: 0 };
+  // Create new, delete old
+  await userRef.collection("courses").doc(newName).set(data);
+  await userRef.collection("courses").doc(oldName).delete();
+  // Update all notes in this course
+  for (const n of notes) {
+    if (n.course === oldName) { n.course = newName; await putNote(n); }
+  }
 }
 
 async function delCourseDB(name) {
@@ -111,7 +140,17 @@ let collapsedDays = new Set(), selectedDays = new Set(), selectMode = false;
 let saveDebounce = null;
 const ct = $("content"), recBtn = $("recBtn"), tmr = $("timer"), mtr = $("meter"), mtrF = $("meterFill"), wcEl = $("wordCount");
 
-async function reload() { courses = await getCourses(); notes = await getNotes(); }
+async function reload() {
+  const courseObjs = await getCourses();
+  courses = courseObjs; // now array of {name, colorIdx, created}
+  notes = await getNotes();
+}
+function courseNames() { return courses.map(c => c.name); }
+function courseColor(name) {
+  const c = courses.find(x => x.name === name);
+  const idx = c?.colorIdx || courses.indexOf(c) || 0;
+  return getColorForCourse(idx);
+}
 
 // ══════════════════════════════════════════════════════════════════
 //  NAVIGATION
@@ -163,29 +202,50 @@ function renderHome() {
   let h = `<div class="greeting"><h2>${greet}, <span>Justin</span></h2><p>What are we learning today?</p></div>`;
   h += `<div class="section-title">My Courses</div><div class="grid">`;
 
-  courses.forEach(c => {
-    const count = cnt[c] || 0;
-    const tw = notes.filter(n => n.course === c).reduce((a, n) => a + (n.transcript ? n.transcript.split(/\s+/).filter(Boolean).length : 0), 0);
-    h += `<div class="folder" data-c="${esc(c)}"><button class="folder-del" data-del="${esc(c)}">&#10005;</button>
-      <div class="folder-icon">&#128218;</div><h3>${esc(c)}</h3><p>${count} lecture${count !== 1 ? "s" : ""} &middot; ${tw.toLocaleString()} words</p></div>`;
+  courses.forEach((c, i) => {
+    const count = cnt[c.name] || 0;
+    const tw = notes.filter(n => n.course === c.name).reduce((a, n) => a + (n.transcript ? n.transcript.split(/\s+/).filter(Boolean).length : 0), 0);
+    const color = getColorForCourse(c.colorIdx ?? i);
+    h += `<div class="folder" data-c="${esc(c.name)}" style="background:${color.bg};border-color:${color.bg}">
+      <div class="folder-accent" style="background:${color.accent}"></div>
+      <div class="folder-actions">
+        <button class="folder-action" data-rename="${esc(c.name)}" title="Rename">&#9998;</button>
+        <button class="folder-action folder-del-btn" data-del="${esc(c.name)}" title="Delete">&#10005;</button>
+      </div>
+      <div class="folder-icon" style="color:${color.accent}">&#128218;</div>
+      <h3>${esc(c.name)}</h3>
+      <p>${count} lecture${count !== 1 ? "s" : ""} &middot; ${tw.toLocaleString()} words</p></div>`;
   });
 
   h += `<div class="add-folder" id="addFolderBtn"><span>+</span><p>Add Course</p></div>`;
   h += `<div class="add-folder-form" id="addFolderForm"><input id="addInput" placeholder="Course name (e.g. CS101)" /><div class="btns"><button class="cancel" id="addCancel">Cancel</button><button class="ok" id="addOk">Create</button></div></div></div>`;
 
-  if (!courses.length && !query) {
+  if (!courseNames().length && !query) {
     h = `<div class="greeting"><h2>${greet}, <span>Justin</span></h2><p>Create your first course to get started.</p></div>
       <div class="grid"><div class="add-folder" id="addFolderBtn"><span>+</span><p>Add Course</p></div>
       <div class="add-folder-form" id="addFolderForm"><input id="addInput" placeholder="Course name" /><div class="btns"><button class="cancel" id="addCancel">Cancel</button><button class="ok" id="addOk">Create</button></div></div></div>`;
   }
 
   ct.innerHTML = h;
-  ct.querySelectorAll(".folder").forEach(el => el.onclick = e => { if (!e.target.classList.contains("folder-del")) navigate("course", el.dataset.c); });
-  ct.querySelectorAll(".folder-del").forEach(el => el.onclick = async e => {
+  ct.querySelectorAll(".folder").forEach(el => el.onclick = e => {
+    if (e.target.classList.contains("folder-action") || e.target.classList.contains("folder-del-btn")) return;
+    navigate("course", el.dataset.c);
+  });
+  ct.querySelectorAll(".folder-del-btn").forEach(el => el.onclick = async e => {
     e.stopPropagation(); const name = el.dataset.del;
     if (!confirm(`Delete "${name}" and all its lectures?`)) return;
     for (const n of notes.filter(x => x.course === name)) await delNote(n.id);
     await delCourseDB(name); await reload(); render();
+  });
+  // Rename
+  ct.querySelectorAll("[data-rename]").forEach(el => el.onclick = async e => {
+    e.stopPropagation(); const oldName = el.dataset.rename;
+    const newName = prompt("Rename course:", oldName);
+    if (newName && newName.trim() && newName.trim() !== oldName) {
+      await renameCourseDB(oldName, newName.trim());
+      if (activeCourse === oldName) activeCourse = newName.trim();
+      await reload(); render();
+    }
   });
 
   const addBtn = $("addFolderBtn"), addForm = $("addFolderForm");
@@ -193,7 +253,7 @@ function renderHome() {
   if ($("addCancel")) $("addCancel").onclick = () => { addForm.classList.remove("v"); addBtn.style.display = "flex"; };
   if ($("addOk")) $("addOk").onclick = async () => {
     const name = $("addInput").value.trim();
-    if (name && !courses.includes(name)) { await addCourseDB(name); await reload(); navigate("course", name); }
+    if (name && !courseNames().includes(name)) { await addCourseDB(name, courses.length % COURSE_COLORS.length); await reload(); navigate("course", name); }
     else { addForm.classList.remove("v"); addBtn.style.display = "flex"; }
   };
   if ($("addInput")) $("addInput").onkeydown = e => { if (e.key === "Enter") $("addOk").click(); if (e.key === "Escape") { addForm.classList.remove("v"); addBtn.style.display = "flex"; } };
