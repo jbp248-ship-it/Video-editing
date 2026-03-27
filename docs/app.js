@@ -449,10 +449,30 @@ function renderLive() {
 // ══════════════════════════════════════════════════════════════════
 
 let recognition = null, timerInt = null, audioCtx = null, analyser = null, micStream = null, raf = null;
-recBtn.onclick = () => rec ? stopRec() : startRec();
-document.onkeydown = e => { if (e.ctrlKey && e.key === "r") { e.preventDefault(); rec ? stopRec() : startRec(); } };
+let recBusy = false; // prevents double-click creating multiple recordings
+
+recBtn.onclick = async () => {
+  if (recBusy) return;
+  recBusy = true;
+  recBtn.disabled = true;
+  try {
+    if (rec) await stopRec();
+    else await startRec();
+  } finally {
+    recBusy = false;
+    recBtn.disabled = false;
+  }
+};
+
+document.onkeydown = e => {
+  if (e.ctrlKey && e.key === "r") {
+    e.preventDefault();
+    if (!recBusy) recBtn.click();
+  }
+};
 
 async function startRec() {
+  if (rec) return; // already recording
   if (!activeCourse) { alert("Open a course first."); return; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { alert("Use Chrome."); return; }
@@ -498,6 +518,7 @@ async function startRec() {
 function debouncedSave(n) { if (saveDebounce) return; saveDebounce = setTimeout(async () => { saveDebounce = null; await putNote(n); }, 5000); }
 
 async function stopRec() {
+  if (!rec) return; // not recording
   rec = false;
   if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
   if (raf) cancelAnimationFrame(raf); if (audioCtx) audioCtx.close().catch(() => {}); if (micStream) micStream.getTracks().forEach(t => t.stop());
