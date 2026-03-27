@@ -1,17 +1,33 @@
 /**
- * Desktop Bridge — connects the Chrome extension to the desktop app
- * via WebSocket on localhost:8765.
+ * Desktop Bridge — connects Chrome extension to desktop app
+ * via authenticated WebSocket on localhost:8765.
  *
- * When the desktop app is running, transcript chunks from the extension
- * are forwarded there so everything is in one place.
+ * Security: requires an auth token (displayed in the desktop app).
+ * Message queue: buffers messages during brief disconnections.
  */
 
-const WS_URL = "ws://localhost:8765";
+const WS_URL = "ws://127.0.0.1:8765";
 const RECONNECT_INTERVAL = 5000;
+const MAX_QUEUE_SIZE = 100;
 
 let ws = null;
 let connected = false;
+let authenticated = false;
 let reconnectTimer = null;
+let authToken = null;
+let messageQueue = [];
+
+/**
+ * Set the auth token. Must be called before connection is useful.
+ * The token is displayed in the desktop app for the user to copy.
+ */
+export function setAuthToken(token) {
+  authToken = token;
+  // If already connected but not authed, send auth now
+  if (ws && ws.readyState === WebSocket.OPEN && !authenticated && authToken) {
+    ws.send(JSON.stringify({ type: "auth", token: authToken }));
+  }
+}
 
 /**
  * Connect to the desktop app. Auto-reconnects on failure.
@@ -28,20 +44,42 @@ export function connectToDesktop() {
       connected = true;
       console.log("[Bridge] Connected to desktop app");
       clearReconnect();
+
+      // Authenticate
+      if (authToken) {
+        ws.send(JSON.stringify({ type: "auth", token: authToken }));
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "auth-ok") {
+          authenticated = true;
+          console.log("[Bridge] Authenticated with desktop app");
+          // Flush queued messages
+          flushQueue();
+        } else if (msg.type === "auth-failed") {
+          console.error("[Bridge] Auth failed — wrong token");
+          authenticated = false;
+        }
+      } catch {}
     };
 
     ws.onclose = () => {
       connected = false;
+      authenticated = false;
       console.log("[Bridge] Disconnected from desktop app");
       scheduleReconnect();
     };
 
     ws.onerror = () => {
-      // Silently fail — desktop app might not be running
       connected = false;
+      authenticated = false;
     };
   } catch {
     connected = false;
+    authenticated = false;
     scheduleReconnect();
   }
 }
@@ -61,22 +99,31 @@ function clearReconnect() {
   }
 }
 
+function flushQueue() {
+  while (messageQueue.length > 0 && authenticated && ws?.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(messageQueue.shift()));
+  }
+}
+
 /**
- * Send a message to the desktop app (if connected).
+ * Send a message to the desktop app.
+ * If disconnected, queues the message (up to MAX_QUEUE_SIZE).
  */
 export function sendToDesktop(msg) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (authenticated && ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(msg));
     return true;
+  }
+
+  // Queue for later delivery
+  if (messageQueue.length < MAX_QUEUE_SIZE) {
+    messageQueue.push(msg);
   }
   return false;
 }
 
-/**
- * Check if the desktop app is connected.
- */
 export function isDesktopConnected() {
-  return connected;
+  return connected && authenticated;
 }
 
 // Start connecting immediately

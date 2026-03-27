@@ -192,20 +192,14 @@ async function handleStartRecording() {
   const { signal } = startAbort;
 
   try {
-    // 1. Get active tab info (metadata only — recording uses microphone, not tab audio)
-    //    This is best-effort: if the page blocks tab info, we still record fine.
-    let tab = null;
-    try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      tab = tabs?.[0] || null;
-    } catch {
-      // Tab info unavailable — that's OK for microphone recording
-    }
-    recordingTabId = tab?.id || null;
+    // 1. Get active tab — REQUIRED for tab audio capture
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("No active tab found");
+    recordingTabId = tab.id;
 
     if (signal.aborted) throw new Error("Recording start was cancelled");
 
-    // 2. Load model if needed
+    // 2. Load Whisper model if needed
     if (!isModelReady()) {
       const ms = getModelState();
       if (ms.state === "error") resetModel();
@@ -218,14 +212,24 @@ async function handleStartRecording() {
 
     // 3. Create note
     currentNoteId = await createNote({
-      url: tab?.url || "microphone",
-      title: tab?.title || "Microphone Recording",
+      url: tab.url,
+      title: tab.title || "Tab Recording",
     });
     recordingStartTime = Date.now();
 
-    // 4. Mic capture is handled by the side panel (mic-capture.js).
-    //    Audio chunks arrive via chrome.runtime.sendMessage("audio-chunk").
-    //    No offscreen document needed for microphone mode.
+    // 4. Get tab capture stream and start offscreen audio processing
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });
+    await ensureOffscreenDocument();
+    const response = await chrome.runtime.sendMessage({
+      type: "start-capture",
+      mode: "tab",
+      streamId,
+    });
+    if (response && !response.ok) {
+      throw new Error(response.error || "Tab capture failed");
+    }
+
+    if (signal.aborted) throw new Error("Recording start was cancelled");
 
     // 5. Activate
     recordingState = "recording";
@@ -275,9 +279,10 @@ function handleStopRecording(reason = "user-requested") {
     return;
   }
 
-  // Mic capture is stopped by the side panel (mic-capture.js).
-  // It sends "capture-stopped" when done. Just trigger it directly.
-  onCaptureStopped();
+  // Tell the offscreen document to stop tab audio capture
+  chrome.runtime.sendMessage({ type: "stop-capture" }).catch(() => {
+    onCaptureStopped();
+  });
 }
 
 function onCaptureStopped() {
@@ -419,6 +424,23 @@ async function handleExportMarkdown(noteId) {
   const note = await getNote(noteId);
   if (!note) throw new Error(`Note ${noteId} not found`);
   return noteToMarkdown(note);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  OFFSCREEN DOCUMENT — for tab audio capture
+// ══════════════════════════════════════════════════════════════════════
+
+async function ensureOffscreenDocument() {
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: ["OFFSCREEN_DOCUMENT"],
+  });
+  if (contexts.length > 0) return;
+
+  await chrome.offscreen.createDocument({
+    url: chrome.runtime.getURL("offscreen.html"),
+    reasons: ["USER_MEDIA"],
+    justification: "Tab audio capture requires AudioContext (unavailable in service workers)",
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════

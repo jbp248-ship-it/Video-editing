@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { getNotesPage } from "../storage/db.js";
-import { startMicCapture, stopMicCapture } from "./mic-capture.js";
 import LiveTranscript from "./LiveTranscript.jsx";
 import NotesList from "./NotesList.jsx";
 import NoteDetail from "./NoteDetail.jsx";
 
 /**
- * Root component for the side panel.
- * Handles all message types from the service worker including errors.
+ * Chrome Extension Side Panel — Tab Audio Only
+ *
+ * This extension captures audio from the current browser tab (Zoom, YouTube,
+ * etc.) and transcribes it via Whisper. For microphone recording of in-person
+ * lectures, use the desktop app.
  */
 export default function App() {
   const [view, setView] = useState("home");
@@ -35,7 +37,6 @@ export default function App() {
     refreshNotes(notesPage + 1);
   }, [notesPage, refreshNotes]);
 
-  // Load notes on mount and when returning to home; clear stale errors
   useEffect(() => {
     if (view === "home") {
       refreshNotes(0);
@@ -43,7 +44,6 @@ export default function App() {
     }
   }, [view, refreshNotes]);
 
-  // Ask the service worker for current model status on mount
   useEffect(() => {
     chrome.runtime.sendMessage({ type: "get-model-status" }, (res) => {
       if (res) {
@@ -53,7 +53,6 @@ export default function App() {
     });
   }, []);
 
-  // Listen for all service worker messages
   useEffect(() => {
     const handler = (msg) => {
       switch (msg.type) {
@@ -63,29 +62,19 @@ export default function App() {
           if (msg.error) setModelError(msg.error);
           if (msg.status === "ready") setModelError(null);
           break;
-
         case "recording-started":
           setActiveNoteId(msg.noteId);
           setIsRecording(true);
           setError(null);
           setView("live");
           break;
-
         case "recording-stopped":
           setIsRecording(false);
           break;
-
         case "recording-error":
           setIsRecording(false);
           setError(msg.error || "Recording failed");
-          // Return to home if we were on the live view with no transcript
-          if (view === "live") {
-            setTimeout(() => setView("home"), 3000);
-          }
-          break;
-
-        case "queue-warning":
-          console.warn(`[UI] Inference queue depth: ${msg.depth}`);
+          if (view === "live") setTimeout(() => setView("home"), 3000);
           break;
       }
     };
@@ -93,30 +82,14 @@ export default function App() {
     return () => chrome.runtime.onMessage.removeListener(handler);
   }, [view]);
 
-  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(() => {
     setError(null);
-
-    // Step 1: Start mic capture directly in the side panel.
-    // The side panel is a visible context so Chrome will show the mic permission prompt.
-    try {
-      await startMicCapture();
-    } catch (err) {
-      setError("Microphone access denied. Please allow microphone access and try again.");
-      return;
-    }
-
-    // Step 2: Tell the service worker to start a recording session
-    // (creates the note, starts inference queue). No offscreen doc needed.
     chrome.runtime.sendMessage({ type: "start-recording" }, (res) => {
-      if (res && !res.ok) {
-        stopMicCapture();
-        setError(res.error || "Failed to start recording");
-      }
+      if (res && !res.ok) setError(res.error || "Failed to start recording");
     });
   }, []);
 
   const stopRecording = useCallback(() => {
-    stopMicCapture();
     chrome.runtime.sendMessage({ type: "stop-recording" });
   }, []);
 
@@ -137,18 +110,13 @@ export default function App() {
     <div className="app">
       <header className="header">
         <h1 onClick={() => setView("home")}>AI Note Taker</h1>
-        <ModelBadge
-          status={modelStatus}
-          progress={modelProgress}
-          error={modelError}
-          onRetry={retryModelLoad}
-        />
+        <span className="header-hint">Tab Audio</span>
+        <ModelBadge status={modelStatus} progress={modelProgress} error={modelError} onRetry={retryModelLoad} />
       </header>
 
       {error && (
         <div className="error-banner" onClick={dismissError}>
-          {error}
-          <span className="dismiss">x</span>
+          {error} <span className="dismiss">x</span>
         </div>
       )}
 
@@ -156,42 +124,24 @@ export default function App() {
         {view === "home" && (
           <>
             <div className="controls">
-              <button
-                className="btn primary"
-                onClick={startRecording}
-                disabled={isRecording || modelStatus === "loading"}
-              >
-                {isRecording
-                  ? "Recording..."
-                  : modelStatus === "loading"
-                  ? "Model loading..."
-                  : "Start Recording"}
+              <button className="btn primary" onClick={startRecording} disabled={isRecording || modelStatus === "loading"}>
+                {isRecording ? "Recording Tab Audio..." : modelStatus === "loading" ? "Model loading..." : "Record This Tab"}
               </button>
+              <p className="controls-hint">
+                Records audio from the current browser tab (Zoom, YouTube, etc.).<br/>
+                For mic recording, use the desktop app.
+              </p>
             </div>
-            <NotesList
-              notes={notes}
-              hasMore={hasMoreNotes}
-              onOpen={openNote}
-              onRefresh={() => refreshNotes(0)}
-              onLoadMore={loadMoreNotes}
-            />
+            <NotesList notes={notes} hasMore={hasMoreNotes} onOpen={openNote} onRefresh={() => refreshNotes(0)} onLoadMore={loadMoreNotes} />
           </>
         )}
 
         {view === "live" && (
-          <LiveTranscript
-            noteId={activeNoteId}
-            isRecording={isRecording}
-            onStop={stopRecording}
-            onBack={() => setView("home")}
-          />
+          <LiveTranscript noteId={activeNoteId} isRecording={isRecording} onStop={stopRecording} onBack={() => setView("home")} />
         )}
 
         {view === "detail" && (
-          <NoteDetail
-            noteId={activeNoteId}
-            onBack={() => setView("home")}
-          />
+          <NoteDetail noteId={activeNoteId} onBack={() => setView("home")} />
         )}
       </main>
     </div>
@@ -200,21 +150,13 @@ export default function App() {
 
 function ModelBadge({ status, progress, error, onRetry }) {
   if (status === "loading" || status === "loading-wasm-fallback") {
-    return (
-      <div className="model-badge loading">
-        Loading model... {progress}%
-      </div>
-    );
+    return <div className="model-badge loading">Loading model... {progress}%</div>;
   }
   if (status === "ready") {
     return <div className="model-badge ready">Model ready</div>;
   }
   if (status === "error") {
-    return (
-      <div className="model-badge error" onClick={onRetry} title={error}>
-        Model failed - click to retry
-      </div>
-    );
+    return <div className="model-badge error" onClick={onRetry} title={error}>Model failed - retry</div>;
   }
   return null;
 }

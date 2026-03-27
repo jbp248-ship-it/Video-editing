@@ -2,11 +2,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   platform: process.platform,
-  // Listen for messages from the Chrome extension (via WebSocket → main → renderer)
-  onExtensionMessage: (callback) => {
-    ipcRenderer.on("extension-message", (_event, msg) => callback(msg));
-  },
-  onExtensionConnected: (callback) => {
-    ipcRenderer.on("extension-connected", (_event, connected) => callback(connected));
-  },
+  onExtensionMessage: (cb) => ipcRenderer.on("extension-message", (_e, msg) => cb(msg)),
+  onExtensionConnected: (cb) => ipcRenderer.on("extension-connected", (_e, v) => cb(v)),
+  onAuthToken: (cb) => ipcRenderer.on("ws-auth-token", (_e, token) => cb(token)),
+  setRecordingState: (state) => ipcRenderer.send("recording-state", state),
 });

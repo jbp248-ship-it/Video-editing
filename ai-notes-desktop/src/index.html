@@ -83,6 +83,62 @@
 
     .add-course-btn:hover { background: #3b4f6b; color: #e2e8f0; }
 
+    .course-actions {
+      display: none;
+      gap: 4px;
+      margin-left: auto;
+    }
+
+    .course-item:hover .course-actions { display: flex; }
+
+    .course-action {
+      font-size: 11px;
+      opacity: 0.5;
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+
+    .course-action:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+
+    .search-box {
+      padding: 8px 16px;
+      border-bottom: 1px solid #334155;
+    }
+
+    .search-box input {
+      width: 100%;
+      padding: 6px 10px;
+      background: #0f172a;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 13px;
+    }
+
+    .source-badge {
+      font-size: 10px;
+      background: #3b82f6;
+      color: #fff;
+      padding: 1px 6px;
+      border-radius: 8px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
+    .net-dot {
+      width: 6px; height: 6px; border-radius: 50%; display: inline-block;
+    }
+    .net-dot.online { background: #22c55e; }
+    .net-dot.offline { background: #ef4444; }
+
+    #networkStatus {
+      padding: 6px 16px;
+      font-size: 10px;
+      color: #64748b;
+      border-top: 1px solid #334155;
+    }
+
     .extension-status {
       padding: 10px 16px;
       font-size: 11px;
@@ -314,8 +370,12 @@
       <h1>AI Note Taker</h1>
       <p>Record lectures, transcribe instantly</p>
     </div>
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Search lectures..." />
+    </div>
     <div class="course-list" id="courseList"></div>
     <div class="add-course-btn" id="addCourseBtn">+ Add Course</div>
+    <div id="networkStatus"></div>
     <div class="extension-status" id="extStatus">
       <span class="ext-dot disconnected"></span> Extension: not connected
     </div>
@@ -323,7 +383,7 @@
 
   <div class="main">
     <div class="toolbar">
-      <button class="record-btn start" id="recordBtn">Start Recording</button>
+      <button class="record-btn start" id="recordBtn">Start Recording (Ctrl+R)</button>
       <span class="timer" id="timer" style="display:none">00:00:00</span>
       <div class="audio-meter" id="meterContainer" style="display:none">
         <div class="audio-meter-fill" id="meterFill"></div>

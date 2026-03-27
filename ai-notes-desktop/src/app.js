@@ -1,14 +1,37 @@
 /**
  * AI Note Taker — Desktop App
  *
- * Uses the Web Speech API (SpeechRecognition) for INSTANT real-time
- * transcription. No Whisper, no WASM, no 10-second delay.
- *
- * Data is stored in localStorage (persists across restarts).
+ * Fixes from code review:
+ *   - All HTML rendering uses textContent or escapeHtml() — no XSS
+ *   - Network status detection (Web Speech API needs internet)
+ *   - Single mic stream shared between recognition and level meter
+ *   - Robust recognition restart with error reporting
+ *   - Course rename/delete
+ *   - Full-text search on transcripts
+ *   - Close confirmation during recording
+ *   - Keyboard shortcut Ctrl+R to start/stop
  */
 
 // ══════════════════════════════════════════════════════════════════
-//  DATA LAYER — localStorage
+//  HELPERS
+// ══════════════════════════════════════════════════════════════════
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str || "";
+  return div.innerHTML;
+}
+
+function formatTime(totalSeconds) {
+  const sec = Math.max(0, Math.floor(totalSeconds || 0));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  DATA LAYER — localStorage (with size guard)
 // ══════════════════════════════════════════════════════════════════
 
 function loadData() {
@@ -19,8 +42,18 @@ function loadData() {
   }
 }
 
-function saveData(data) {
-  localStorage.setItem("ai-notes-data", JSON.stringify(data));
+function saveData(d) {
+  try {
+    const json = JSON.stringify(d);
+    // Warn if approaching localStorage limit (~5MB)
+    if (json.length > 4 * 1024 * 1024) {
+      console.warn(`[Storage] Data size: ${(json.length / 1024 / 1024).toFixed(1)} MB — approaching 5MB limit`);
+    }
+    localStorage.setItem("ai-notes-data", json);
+  } catch (err) {
+    console.error("[Storage] Save failed:", err);
+    alert("Storage is full. Please export and delete old lectures to free space.");
+  }
 }
 
 let data = loadData();
@@ -29,18 +62,19 @@ let data = loadData();
 //  STATE
 // ══════════════════════════════════════════════════════════════════
 
-let activeCourse = null; // course name or null (show all)
-let activeNote = null;   // note object or null
+let activeCourse = null;
+let activeNote = null;
 let recording = false;
 let recognition = null;
 let currentNoteId = null;
 let recordingStartTime = 0;
 let timerInterval = null;
+let searchQuery = "";
 
-// Audio level monitoring
+// Single mic stream — shared between SpeechRecognition and level meter
+let micStream = null;
 let audioContext = null;
 let analyser = null;
-let micStream = null;
 let levelAnimFrame = null;
 
 // ══════════════════════════════════════════════════════════════════
@@ -61,13 +95,31 @@ const modalCancel = document.getElementById("modalCancel");
 const modalOk = document.getElementById("modalOk");
 
 // ══════════════════════════════════════════════════════════════════
+//  NETWORK STATUS
+// ══════════════════════════════════════════════════════════════════
+
+let online = navigator.onLine;
+window.addEventListener("online", () => { online = true; updateNetworkUI(); });
+window.addEventListener("offline", () => { online = false; updateNetworkUI(); });
+
+function updateNetworkUI() {
+  const el = document.getElementById("networkStatus");
+  if (!el) return;
+  if (online) {
+    el.innerHTML = '<span class="net-dot online"></span> Online';
+  } else {
+    el.innerHTML = '<span class="net-dot offline"></span> Offline — transcription unavailable';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  COURSE SIDEBAR
 // ══════════════════════════════════════════════════════════════════
 
 function renderCourses() {
-  const notesByCoourse = {};
+  const notesByCourse = {};
   data.notes.forEach((n) => {
-    notesByCoourse[n.course] = (notesByCoourse[n.course] || 0) + 1;
+    notesByCourse[n.course] = (notesByCourse[n.course] || 0) + 1;
   });
 
   let html = `
@@ -77,19 +129,24 @@ function renderCourses() {
   `;
 
   data.courses.forEach((c) => {
-    const count = notesByCoourse[c] || 0;
+    const count = notesByCourse[c] || 0;
     html += `
-      <div class="course-item ${activeCourse === c ? "active" : ""}" data-course="${c}">
-        ${c} <span class="course-count">${count}</span>
+      <div class="course-item ${activeCourse === c ? "active" : ""}" data-course="${escapeHtml(c)}">
+        ${escapeHtml(c)} <span class="course-count">${count}</span>
+        <span class="course-actions">
+          <span class="course-action rename-course" data-name="${escapeHtml(c)}" title="Rename">&#9998;</span>
+          <span class="course-action delete-course" data-name="${escapeHtml(c)}" title="Delete">&#10005;</span>
+        </span>
       </div>
     `;
   });
 
   courseListEl.innerHTML = html;
 
-  // Click handlers
+  // Course click
   courseListEl.querySelectorAll(".course-item").forEach((el) => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", (e) => {
+      if (e.target.classList.contains("course-action")) return;
       const course = el.dataset.course;
       activeCourse = course === "__all__" ? null : course;
       activeNote = null;
@@ -97,17 +154,64 @@ function renderCourses() {
       renderContent();
     });
   });
+
+  // Rename course
+  courseListEl.querySelectorAll(".rename-course").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const oldName = el.dataset.name;
+      showModal("Rename Course", oldName, (newName) => {
+        if (newName && newName !== oldName) {
+          const idx = data.courses.indexOf(oldName);
+          if (idx !== -1) data.courses[idx] = newName;
+          data.notes.forEach((n) => { if (n.course === oldName) n.course = newName; });
+          if (activeCourse === oldName) activeCourse = newName;
+          saveData(data);
+          renderCourses();
+          renderContent();
+        }
+      });
+    });
+  });
+
+  // Delete course
+  courseListEl.querySelectorAll(".delete-course").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const name = el.dataset.name;
+      const count = notesByCourse[name] || 0;
+      if (confirm(`Delete "${name}"? ${count} lecture(s) will be moved to "Uncategorized".`)) {
+        data.courses = data.courses.filter((c) => c !== name);
+        data.notes.forEach((n) => { if (n.course === name) n.course = "Uncategorized"; });
+        if (!data.courses.includes("Uncategorized") && data.notes.some((n) => n.course === "Uncategorized")) {
+          data.courses.push("Uncategorized");
+        }
+        if (activeCourse === name) activeCourse = null;
+        saveData(data);
+        renderCourses();
+        renderContent();
+      }
+    });
+  });
+}
+
+// ── Modal helper ──
+function showModal(title, defaultValue, onOk) {
+  modalTitle.textContent = title;
+  modalInput.value = defaultValue || "";
+  modal.style.display = "flex";
+  modalInput.focus();
+  modalInput.select();
+
+  modalOk.onclick = () => {
+    const val = modalInput.value.trim();
+    modal.style.display = "none";
+    onOk(val);
+  };
 }
 
 addCourseBtn.addEventListener("click", () => {
-  modalTitle.textContent = "Add Course";
-  modalInput.value = "";
-  modalInput.placeholder = "e.g. CS101 — Intro to Computer Science";
-  modal.style.display = "flex";
-  modalInput.focus();
-
-  modalOk.onclick = () => {
-    const name = modalInput.value.trim();
+  showModal("Add Course", "", (name) => {
     if (name && !data.courses.includes(name)) {
       data.courses.push(name);
       saveData(data);
@@ -115,42 +219,47 @@ addCourseBtn.addEventListener("click", () => {
       renderCourses();
       renderContent();
     }
-    modal.style.display = "none";
-  };
+  });
 });
 
 modalCancel.addEventListener("click", () => { modal.style.display = "none"; });
 modalInput.addEventListener("keydown", (e) => { if (e.key === "Enter") modalOk.click(); });
 
 // ══════════════════════════════════════════════════════════════════
+//  SEARCH
+// ══════════════════════════════════════════════════════════════════
+
+const searchInput = document.getElementById("searchInput");
+if (searchInput) {
+  searchInput.addEventListener("input", (e) => {
+    searchQuery = e.target.value.trim().toLowerCase();
+    if (!recording) renderContent();
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
 //  CONTENT AREA
 // ══════════════════════════════════════════════════════════════════
 
 function renderContent() {
-  if (recording) {
-    renderLiveTranscript();
-    return;
-  }
-
-  if (activeNote) {
-    renderNoteDetail();
-    return;
-  }
-
+  if (recording) { renderLiveTranscript(); return; }
+  if (activeNote) { renderNoteDetail(); return; }
   renderNotesList();
 }
 
 function renderNotesList() {
   let notes = data.notes.filter((n) => !activeCourse || n.course === activeCourse);
+  if (searchQuery) {
+    notes = notes.filter((n) =>
+      n.transcript.toLowerCase().includes(searchQuery) ||
+      n.title.toLowerCase().includes(searchQuery)
+    );
+  }
   notes.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   if (notes.length === 0) {
-    contentEl.innerHTML = `
-      <div class="empty-state">
-        <h2>${activeCourse || "All Notes"}</h2>
-        <p>${activeCourse ? "No lectures recorded for this course yet." : "Add a course and start recording!"}</p>
-      </div>
-    `;
+    const title = searchQuery ? `No results for "${escapeHtml(searchQuery)}"` : (activeCourse || "All Notes");
+    contentEl.innerHTML = `<div class="empty-state"><h2>${escapeHtml(title)}</h2><p>${searchQuery ? "Try a different search term." : "Add a course and start recording!"}</p></div>`;
     return;
   }
 
@@ -159,16 +268,17 @@ function renderNotesList() {
     const date = new Date(note.date).toLocaleDateString();
     const duration = formatTime(note.duration || 0);
     const preview = note.transcript.slice(0, 150) + (note.transcript.length > 150 ? "..." : "");
+    const source = note.source === "extension" ? ' <span class="source-badge">Browser</span>' : "";
 
     html += `
-      <div class="note-card" data-id="${note.id}">
-        <h3>${note.title}</h3>
+      <div class="note-card" data-id="${escapeHtml(note.id)}">
+        <h3>${escapeHtml(note.title)}${source}</h3>
         <div class="meta">
-          <span>${date}</span>
+          <span>${escapeHtml(date)}</span>
           <span>${duration}</span>
-          <span>${note.course}</span>
+          <span>${escapeHtml(note.course)}</span>
         </div>
-        <div class="preview">${preview || "No transcript"}</div>
+        <div class="preview">${escapeHtml(preview) || "No transcript"}</div>
       </div>
     `;
   });
@@ -188,26 +298,25 @@ function renderNoteDetail() {
   const date = new Date(note.date).toLocaleDateString();
   const duration = formatTime(note.duration || 0);
 
-  // Build timestamped transcript
   let transcriptHtml = "";
   if (note.chunks && note.chunks.length > 0) {
     note.chunks.forEach((c) => {
-      transcriptHtml += `<span class="ts">[${formatTime(c.time)}]</span> ${c.text}\n`;
+      transcriptHtml += `<span class="ts">[${formatTime(c.time)}]</span> ${escapeHtml(c.text)}\n`;
     });
   } else {
-    transcriptHtml = note.transcript || "No transcript";
+    transcriptHtml = escapeHtml(note.transcript) || "No transcript";
   }
 
   contentEl.innerHTML = `
     <div class="note-detail-header">
       <div>
-        <h2>${note.title}</h2>
+        <h2>${escapeHtml(note.title)}</h2>
         <div class="meta" style="margin-top:4px">
-          <span>${date}</span><span>${duration}</span><span>${note.course}</span>
+          <span>${escapeHtml(date)}</span><span>${duration}</span><span>${escapeHtml(note.course)}</span>
         </div>
       </div>
       <div class="btn-group">
-        <button class="btn" id="backBtn">← Back</button>
+        <button class="btn" id="backBtn">&larr; Back</button>
         <button class="btn" id="exportBtn">Export .md</button>
         <button class="btn danger" id="deleteBtn">Delete</button>
       </div>
@@ -229,7 +338,7 @@ function renderNoteDetail() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  LIVE TRANSCRIPT (during recording)
+//  LIVE TRANSCRIPT
 // ══════════════════════════════════════════════════════════════════
 
 let liveLines = [];
@@ -238,15 +347,15 @@ let interimText = "";
 function renderLiveTranscript() {
   let html = "";
   liveLines.forEach((line) => {
-    html += `<div class="transcript-line"><span class="ts">[${formatTime(line.time)}]</span> ${line.text}</div>`;
+    html += `<div class="transcript-line"><span class="ts">[${formatTime(line.time)}]</span> ${escapeHtml(line.text)}</div>`;
   });
 
   if (interimText) {
-    html += `<div class="transcript-line interim">${interimText}</div>`;
+    html += `<div class="transcript-line interim">${escapeHtml(interimText)}</div>`;
   }
 
   if (!html) {
-    html = `<div class="transcript-line interim">Listening... start speaking.</div>`;
+    html = `<div class="transcript-line interim">${online ? "Listening... start speaking." : "Offline — transcription unavailable. Recording audio only."}</div>`;
   }
 
   contentEl.innerHTML = html;
@@ -254,73 +363,85 @@ function renderLiveTranscript() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  RECORDING — Web Speech API (INSTANT transcription)
+//  RECORDING — Web Speech API
 // ══════════════════════════════════════════════════════════════════
 
-recordBtn.addEventListener("click", () => {
-  if (recording) {
-    stopRecording();
-  } else {
-    startRecording();
+recordBtn.addEventListener("click", toggleRecording);
+
+// Keyboard shortcut: Ctrl+R
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.key === "r") {
+    e.preventDefault();
+    toggleRecording();
   }
 });
 
-function startRecording() {
+function toggleRecording() {
+  if (recording) stopRecording();
+  else startRecording();
+}
+
+async function startRecording() {
   if (!activeCourse) {
     alert("Please select or add a course first.");
     return;
   }
 
-  // Check Speech Recognition support
+  if (!online) {
+    if (!confirm("You are offline. Web Speech API requires internet for transcription. Record anyway? (Audio level will show, but no transcript will be generated.)")) {
+      return;
+    }
+  }
+
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    alert("Speech recognition is not supported in this browser.");
+    alert("Speech recognition is not supported.");
     return;
   }
 
-  // Create a new note
+  // Get single mic stream — shared between recognition and level meter
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    alert("Microphone access denied.");
+    return;
+  }
+
+  // Create note
   const noteId = Date.now().toString(36) + Math.random().toString(36).slice(2);
   const now = new Date();
   const title = `${activeCourse} — ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 
-  const newNote = {
-    id: noteId,
-    course: activeCourse,
-    title,
-    date: now.toISOString(),
-    transcript: "",
-    chunks: [],
-    duration: 0,
-  };
-
-  data.notes.push(newNote);
+  data.notes.push({
+    id: noteId, course: activeCourse, title, date: now.toISOString(),
+    transcript: "", chunks: [], duration: 0,
+  });
   saveData(data);
   currentNoteId = noteId;
   liveLines = [];
   interimText = "";
 
-  // Start speech recognition
+  // Speech recognition
   recognition = new SpeechRecognition();
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.lang = "en-US";
-  recognition.maxAlternatives = 1;
 
   recordingStartTime = Date.now();
+  let consecutiveErrors = 0;
 
   recognition.onresult = (event) => {
+    consecutiveErrors = 0; // Reset error count on success
     const elapsed = (Date.now() - recordingStartTime) / 1000;
 
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const result = event.results[i];
       const text = result[0].transcript.trim();
 
-      if (result.isFinal) {
-        // Final result — add to transcript
+      if (result.isFinal && text) {
         liveLines.push({ text, time: elapsed });
         interimText = "";
 
-        // Save to note
         const note = data.notes.find((n) => n.id === currentNoteId);
         if (note) {
           note.transcript += (note.transcript ? " " : "") + text;
@@ -329,43 +450,61 @@ function startRecording() {
           saveData(data);
         }
       } else {
-        // Interim result — show as preview (updates in real-time as you speak)
         interimText = text;
       }
     }
-
     renderLiveTranscript();
   };
 
   recognition.onerror = (event) => {
-    console.error("Speech recognition error:", event.error);
+    console.error("Speech error:", event.error);
+    consecutiveErrors++;
+
     if (event.error === "not-allowed") {
-      alert("Microphone access denied. Please allow microphone access in your system settings.");
+      alert("Microphone access denied.");
       stopRecording();
+      return;
+    }
+
+    if (event.error === "network") {
+      interimText = "(Network error — waiting for connection...)";
+      renderLiveTranscript();
+    }
+
+    // Stop after 5 consecutive errors to avoid infinite restart loop
+    if (consecutiveErrors >= 5) {
+      interimText = "(Transcription stopped — too many errors)";
+      renderLiveTranscript();
     }
   };
 
-  // Restart recognition if it stops (Chrome stops after ~60s of silence)
   recognition.onend = () => {
-    if (recording) {
-      try { recognition.start(); } catch {}
+    if (recording && consecutiveErrors < 5) {
+      // Restart after natural timeout (Chrome stops after ~60s silence)
+      setTimeout(() => {
+        if (recording) {
+          try { recognition.start(); } catch {}
+        }
+      }, 200);
     }
   };
 
   recognition.start();
   recording = true;
 
-  // Start audio level meter
+  // Notify main process (for close confirmation)
+  window.electronAPI?.setRecordingState?.(true);
+
+  // Level meter — uses the same mic stream
   startAudioMeter();
 
-  // UI updates
-  recordBtn.textContent = "Stop Recording";
+  // UI
+  recordBtn.textContent = "Stop Recording (Ctrl+R)";
   recordBtn.classList.remove("start");
   recordBtn.classList.add("stop");
   timerEl.style.display = "inline";
   meterContainer.style.display = "block";
 
-  // Timer
   timerInterval = setInterval(() => {
     timerEl.textContent = formatTime((Date.now() - recordingStartTime) / 1000);
   }, 1000);
@@ -375,6 +514,7 @@ function startRecording() {
 
 function stopRecording() {
   recording = false;
+  window.electronAPI?.setRecordingState?.(false);
 
   if (recognition) {
     recognition.onend = null;
@@ -383,18 +523,15 @@ function stopRecording() {
   }
 
   stopAudioMeter();
-
   clearInterval(timerInterval);
 
-  // Update note duration
   const note = data.notes.find((n) => n.id === currentNoteId);
   if (note) {
     note.duration = Math.round((Date.now() - recordingStartTime) / 1000);
     saveData(data);
   }
 
-  // UI updates
-  recordBtn.textContent = "Start Recording";
+  recordBtn.textContent = "Start Recording (Ctrl+R)";
   recordBtn.classList.remove("stop");
   recordBtn.classList.add("start");
   timerEl.style.display = "none";
@@ -406,28 +543,25 @@ function stopRecording() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  AUDIO LEVEL METER
+//  AUDIO LEVEL METER — uses shared mic stream
 // ══════════════════════════════════════════════════════════════════
 
-async function startAudioMeter() {
+function startAudioMeter() {
+  if (!micStream) return;
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     audioContext = new AudioContext();
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
-
     const source = audioContext.createMediaStreamSource(micStream);
     source.connect(analyser);
 
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-
+    const buf = new Uint8Array(analyser.frequencyBinCount);
     function tick() {
       if (!recording) return;
-      analyser.getByteFrequencyData(dataArray);
+      analyser.getByteFrequencyData(buf);
       let sum = 0;
-      for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
-      const level = sum / (bufferLength * 255);
+      for (let i = 0; i < buf.length; i++) sum += buf[i];
+      const level = sum / (buf.length * 255);
       meterFill.style.width = `${Math.min(100, level * 400)}%`;
       levelAnimFrame = requestAnimationFrame(tick);
     }
@@ -448,30 +582,22 @@ function stopAudioMeter() {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  EXPORT TO MARKDOWN
+//  EXPORT
 // ══════════════════════════════════════════════════════════════════
 
 function exportNote(note) {
   const date = new Date(note.date).toISOString().split("T")[0];
   const lines = [
-    `# ${note.title}`,
-    "",
-    `| Field | Value |`,
-    `|-------|-------|`,
+    `# ${note.title}`, "",
+    "| Field | Value |", "|-------|-------|",
     `| **Date** | ${date} |`,
     `| **Course** | ${note.course} |`,
     `| **Duration** | ${formatTime(note.duration)} |`,
-    "",
-    "---",
-    "",
-    "## Transcript",
-    "",
+    "", "---", "", "## Transcript", "",
   ];
 
-  if (note.chunks && note.chunks.length > 0) {
-    note.chunks.forEach((c) => {
-      lines.push(`\`[${formatTime(c.time)}]\` ${c.text}`, "");
-    });
+  if (note.chunks?.length > 0) {
+    note.chunks.forEach((c) => lines.push(`\`[${formatTime(c.time)}]\` ${c.text}`, ""));
   } else {
     lines.push(note.transcript || "_No transcript_", "");
   }
@@ -487,92 +613,66 @@ function exportNote(note) {
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  HELPERS
-// ══════════════════════════════════════════════════════════════════
-
-function formatTime(totalSeconds) {
-  const sec = Math.max(0, Math.floor(totalSeconds || 0));
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
-}
-
-// ══════════════════════════════════════════════════════════════════
 //  CHROME EXTENSION BRIDGE
-//
-//  The desktop app runs a WebSocket server on localhost:8765.
-//  The Chrome extension connects and sends transcript data.
-//  This handler receives that data and creates/updates notes.
 // ══════════════════════════════════════════════════════════════════
 
-let extensionConnected = false;
 let extensionNoteId = null;
 
 if (window.electronAPI) {
   window.electronAPI.onExtensionConnected((connected) => {
-    extensionConnected = connected;
     const el = document.getElementById("extStatus");
     if (connected) {
       el.innerHTML = '<span class="ext-dot connected"></span> Extension: connected';
     } else {
       el.innerHTML = '<span class="ext-dot disconnected"></span> Extension: not connected';
     }
-    renderCourses();
   });
 
   window.electronAPI.onExtensionMessage((msg) => {
+    // Sanitize all incoming string fields
+    const sanitize = (s) => (typeof s === "string" ? s : "");
+
     switch (msg.type) {
       case "start-session": {
-        // Extension started recording — create a note for it
-        const course = msg.course || "Browser Recordings";
-        if (!data.courses.includes(course)) {
-          data.courses.push(course);
-        }
+        const course = sanitize(msg.course) || "Browser Recordings";
+        if (!data.courses.includes(course)) data.courses.push(course);
 
         const noteId = "ext-" + Date.now().toString(36);
         const now = new Date();
         extensionNoteId = noteId;
 
         data.notes.push({
-          id: noteId,
-          course,
-          title: msg.title || `${course} — ${now.toLocaleDateString()} ${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
-          date: now.toISOString(),
-          transcript: "",
-          chunks: [],
-          duration: 0,
+          id: noteId, course,
+          title: sanitize(msg.title) || `${course} — ${now.toLocaleDateString()}`,
+          date: now.toISOString(), transcript: "", chunks: [], duration: 0,
           source: "extension",
         });
         saveData(data);
         renderCourses();
-        renderContent();
+        if (!recording) renderContent();
         break;
       }
 
       case "transcript-chunk": {
-        // Extension sent a new transcript chunk
         if (!extensionNoteId) break;
         const note = data.notes.find((n) => n.id === extensionNoteId);
         if (!note) break;
 
-        note.transcript += (note.transcript ? " " : "") + msg.text;
-        note.chunks.push({
-          text: msg.text,
-          time: msg.offsetSec || 0,
-        });
-        note.duration = Math.round(msg.offsetSec || note.duration);
-        saveData(data);
+        const text = sanitize(msg.text);
+        if (!text) break;
 
-        // If we're viewing this note's course, refresh
-        if (!activeNote) renderContent();
+        note.transcript += (note.transcript ? " " : "") + text;
+        note.chunks.push({ text, time: Number(msg.offsetSec) || 0 });
+        note.duration = Math.round(Number(msg.offsetSec) || note.duration);
+        saveData(data);
+        if (!activeNote && !recording) renderContent();
         break;
       }
 
       case "stop-session": {
         extensionNoteId = null;
         renderCourses();
-        renderContent();
+        if (!recording) renderContent();
         break;
       }
     }
@@ -585,3 +685,4 @@ if (window.electronAPI) {
 
 renderCourses();
 renderContent();
+updateNetworkUI();

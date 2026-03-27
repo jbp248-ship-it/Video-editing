@@ -1,53 +1,84 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
+const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 
 let mainWindow;
 let wss;
+let isRecording = false;
 
-// ── WebSocket Server ──
-// The Chrome extension connects to ws://localhost:8765 and sends
-// transcript data. The desktop app receives it and stores it alongside
-// local mic recordings. Everything in one place.
+// ── Auth token — prevents random processes from injecting data ──
+// Generated once per session. The Chrome extension must send this
+// token in its first message to be accepted.
+const AUTH_TOKEN = crypto.randomBytes(16).toString("hex");
 
 const WS_PORT = 8765;
 
 function startWebSocketServer() {
-  wss = new WebSocketServer({ port: WS_PORT });
+  wss = new WebSocketServer({ port: WS_PORT, host: "127.0.0.1" });
 
   wss.on("listening", () => {
-    console.log(`[WS] Server listening on ws://localhost:${WS_PORT}`);
+    console.log(`[WS] Server listening on ws://127.0.0.1:${WS_PORT}`);
+    console.log(`[WS] Auth token: ${AUTH_TOKEN}`);
+    // Send auth token to renderer so it can display for the user
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("ws-auth-token", AUTH_TOKEN);
+    }
   });
 
-  wss.on("connection", (ws) => {
-    console.log("[WS] Chrome extension connected");
+  wss.on("connection", (ws, req) => {
+    let authenticated = false;
 
     ws.on("message", (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
-        // Forward to the renderer process
+
+        // First message must be auth
+        if (!authenticated) {
+          if (msg.type === "auth" && msg.token === AUTH_TOKEN) {
+            authenticated = true;
+            ws.send(JSON.stringify({ type: "auth-ok" }));
+            console.log("[WS] Extension authenticated");
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("extension-connected", true);
+            }
+          } else {
+            ws.send(JSON.stringify({ type: "auth-failed" }));
+            ws.close();
+          }
+          return;
+        }
+
+        // Authenticated — forward to renderer
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send("extension-message", msg);
         }
       } catch (err) {
-        console.error("[WS] Bad message:", err);
+        console.error("[WS] Bad message:", err.message);
       }
     });
 
     ws.on("close", () => {
-      console.log("[WS] Chrome extension disconnected");
+      if (authenticated && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("extension-connected", false);
+      }
+      console.log("[WS] Connection closed");
     });
-
-    // Send current connection status to renderer
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("extension-connected", true);
-    }
   });
 
   wss.on("error", (err) => {
-    console.error("[WS] Server error:", err.message);
+    if (err.code === "EADDRINUSE") {
+      console.error(`[WS] Port ${WS_PORT} already in use — another instance running?`);
+    } else {
+      console.error("[WS] Server error:", err.message);
+    }
   });
 }
+
+// ── Track recording state from renderer ──
+ipcMain.on("recording-state", (_event, state) => {
+  isRecording = state;
+});
 
 // ── Electron Window ──
 
@@ -73,6 +104,22 @@ function createWindow() {
       callback(permission === "media");
     }
   );
+
+  // Prevent accidental close during recording
+  mainWindow.on("close", (e) => {
+    if (isRecording) {
+      const choice = dialog.showMessageBoxSync(mainWindow, {
+        type: "warning",
+        buttons: ["Stop Recording & Close", "Cancel"],
+        defaultId: 1,
+        title: "Recording in Progress",
+        message: "You are currently recording a lecture. Close anyway?",
+      });
+      if (choice === 1) {
+        e.preventDefault();
+      }
+    }
+  });
 }
 
 app.whenReady().then(() => {
