@@ -167,11 +167,22 @@ function navigate(v, data) {
 function renderBread() {
   const b = $("bread"); if (!b) return;
   if (view === "home") { b.innerHTML = ""; return; }
-  let h = `<a data-nav="home">My Courses</a>`;
+
+  // Back button
+  let backTarget = "home";
+  if (view === "note" || view === "live") backTarget = "course";
+
+  let h = `<button class="back-btn" data-back="${backTarget}">&larr; Back</button>`;
+  h += `<a data-nav="home">My Courses</a>`;
   if (view !== "home") h += `<span>/</span><a data-nav="course">${esc(activeCourse)}</a>`;
   if (view === "note") h += `<span>/</span><span>${esc(activeNote?.title || "")}</span>`;
   if (view === "live") h += `<span>/</span><span>Recording...</span>`;
   b.innerHTML = h;
+
+  b.querySelector(".back-btn")?.addEventListener("click", () => {
+    if (backTarget === "course") navigate("course", activeCourse);
+    else navigate("home");
+  });
   b.querySelectorAll("a").forEach(a => a.onclick = () => {
     if (a.dataset.nav === "home") navigate("home");
     else if (a.dataset.nav === "course") navigate("course", activeCourse);
@@ -344,22 +355,93 @@ function openStudyMode(cn) {
 
 function renderDetail() {
   const n = activeNote; if (!n) return;
-  let th = ""; if (n.chunks?.length) n.chunks.forEach(c => th += `<span class="ts">[${fmt(c.time)}]</span> ${esc(c.text)}\n`); else th = esc(n.transcript) || "No transcript";
+  const wc = n.transcript ? n.transcript.split(/\s+/).filter(Boolean).length : 0;
+
+  // Build readable transcript
+  let th = "";
+  if (n.chunks?.length) {
+    n.chunks.forEach(c => {
+      th += `<div style="margin-bottom:8px"><span class="ts">[${fmt(c.time)}]</span> ${esc(c.text)}</div>`;
+    });
+  } else if (n.transcript) {
+    th = `<div style="line-height:1.9">${esc(n.transcript)}</div>`;
+  } else {
+    th = `<div style="color:#8B7E75;font-style:italic">No transcript recorded.</div>`;
+  }
+
   const sumH = n.summary ? `<div class="summary-box"><h3>AI Summary</h3>${esc(n.summary)}</div>` : "";
+  const day = new Date(n.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const time = new Date(n.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
   ct.innerHTML = `<div class="detail-hdr"><h2>${esc(n.title)}</h2>
-    <div class="detail-meta"><span>${new Date(n.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</span><span>${fmt(n.duration)}</span><span class="tag">${esc(n.course)}</span></div>
-    <div class="detail-actions"><button class="btn btn-pri" id="sumBtn">Summarize</button><button class="btn" id="exp">Export</button><button class="btn btn-dng" id="del">Delete</button></div></div>
+    <div class="detail-meta"><span>${esc(day)} at ${time}</span><span>${fmt(n.duration)}</span><span>${wc.toLocaleString()} words</span><span class="tag">${esc(n.course)}</span></div>
+    <div class="detail-actions">
+      <button class="btn btn-pri" id="copyAll">Copy Transcript</button>
+      <button class="btn" id="sumBtn">Summarize</button>
+      <button class="btn" id="exp">Export .md</button>
+      <button class="btn btn-dng" id="del">Delete</button>
+    </div></div>
     <div class="transcript-box">${th}</div>${sumH}`;
+
+  $("copyAll").onclick = () => {
+    const text = n.chunks?.length
+      ? n.chunks.map(c => `[${fmt(c.time)}] ${c.text}`).join("\n")
+      : n.transcript || "";
+    navigator.clipboard.writeText(text).then(() => {
+      $("copyAll").textContent = "Copied!";
+      setTimeout(() => $("copyAll").textContent = "Copy Transcript", 2000);
+    });
+  };
   $("exp").onclick = () => exportMd(n);
   $("del").onclick = async () => { if (confirm("Delete?")) { await delNote(n.id); await reload(); navigate("course", activeCourse); } };
   $("sumBtn").onclick = () => summarize(n);
 }
 
+// Track how many lines are already rendered to avoid full re-renders
+let renderedLineCount = 0;
+
 function renderLive() {
-  let h = ""; lines.forEach(l => h += `<div class="live-line"><span class="ts">[${fmt(l.time)}]</span> ${esc(l.text)}</div>`);
-  if (interim) h += `<div class="live-line live-interim">${esc(interim)}</div>`;
-  if (!h) h = `<div class="live-line live-interim">Listening... speak into your microphone.</div>`;
-  ct.innerHTML = h; ct.scrollTop = ct.scrollHeight;
+  // First render — set up the container
+  if (renderedLineCount === 0 && lines.length === 0) {
+    ct.innerHTML = `<div id="liveContainer"><div class="live-line live-interim" id="interimLine">Listening... speak into your microphone.</div></div>`;
+    return;
+  }
+
+  let container = $("liveContainer");
+  if (!container) {
+    ct.innerHTML = `<div id="liveContainer"></div>`;
+    container = $("liveContainer");
+    renderedLineCount = 0;
+  }
+
+  // Append only NEW sealed lines (typewriter effect — old lines stay)
+  while (renderedLineCount < lines.length) {
+    const l = lines[renderedLineCount];
+    const div = document.createElement("div");
+    div.className = "live-line";
+    div.innerHTML = `<span class="ts">[${fmt(l.time)}]</span> ${esc(l.text)}`;
+    // Remove interim line if it exists
+    const old = $("interimLine");
+    if (old) old.remove();
+    container.appendChild(div);
+    renderedLineCount++;
+  }
+
+  // Update or create interim line (the "typing" indicator)
+  let interimEl = $("interimLine");
+  if (interim) {
+    if (!interimEl) {
+      interimEl = document.createElement("div");
+      interimEl.className = "live-line live-interim";
+      interimEl.id = "interimLine";
+      container.appendChild(interimEl);
+    }
+    interimEl.textContent = interim;
+  } else if (interimEl) {
+    interimEl.textContent = "Listening...";
+  }
+
+  ct.scrollTop = ct.scrollHeight;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -380,7 +462,7 @@ async function startRec() {
   const noteObj = { id, course: activeCourse, title: "Recording...", date: now.toISOString(), transcript: "", chunks: [], duration: 0, summary: "" };
   await putNote(noteObj);
   notes.unshift(noteObj);
-  noteId = id; lines = []; interim = ""; startT = Date.now(); rec = true; wordCount = 0;
+  noteId = id; lines = []; interim = ""; startT = Date.now(); rec = true; wordCount = 0; renderedLineCount = 0;
 
   recognition = new SR(); recognition.continuous = true; recognition.interimResults = true; recognition.lang = "en-US";
   recognition.onresult = e => {
