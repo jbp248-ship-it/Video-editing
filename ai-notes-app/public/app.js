@@ -1,492 +1,375 @@
 // ══════════════════════════════════════════════════════════════════
-//  AI Note Taker v3
-//
-//  - IndexedDB storage (unlimited, not 5MB localStorage)
-//  - Notes grouped by day (newest first, collapsible)
-//  - Auto-summary titles from transcript content
-//  - Instant transcription via Chrome Speech API
-//  - PWA installable
-//  - AI summary (window.ai or extractive fallback)
+//  Justin's AI Note Taker v4
+//  Google Drive-style folders + day-grouped notes
+//  Claude color scheme (#D97757 accent)
+//  IndexedDB unlimited storage
 // ══════════════════════════════════════════════════════════════════
 
 const esc = s => { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; };
 const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return [Math.floor(s/3600), Math.floor((s%3600)/60), s%60].map(v => String(v).padStart(2,"0")).join(":"); };
 const $ = id => document.getElementById(id);
-
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // ══════════════════════════════════════════════════════════════════
-//  IndexedDB — unlimited storage
+//  IndexedDB
 // ══════════════════════════════════════════════════════════════════
-
 let db = null;
-
 function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open("ai-notes", 2);
-    req.onupgradeneeded = e => {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("justins-notes", 1);
+    r.onupgradeneeded = e => {
       const d = e.target.result;
-      if (!d.objectStoreNames.contains("notes")) {
-        const s = d.createObjectStore("notes", { keyPath: "id" });
-        s.createIndex("by-course", "course");
-        s.createIndex("by-date", "date");
-      }
-      if (!d.objectStoreNames.contains("courses")) {
-        d.createObjectStore("courses", { keyPath: "name" });
-      }
+      if (!d.objectStoreNames.contains("notes")) { const s = d.createObjectStore("notes", { keyPath: "id" }); s.createIndex("by-course","course"); s.createIndex("by-date","date"); }
+      if (!d.objectStoreNames.contains("courses")) d.createObjectStore("courses", { keyPath: "name" });
     };
-    req.onsuccess = e => { db = e.target.result; resolve(db); };
-    req.onerror = e => reject(e.target.error);
+    r.onsuccess = e => { db = e.target.result; res(db); };
+    r.onerror = e => rej(e.target.error);
   });
 }
+async function dbAll(s) { return new Promise((r,j) => { const t=db.transaction(s,"readonly"); t.objectStore(s).getAll().onsuccess=e=>r(e.target.result); t.onerror=e=>j(e.target.error); }); }
+async function dbPut(s,v) { return new Promise((r,j) => { const t=db.transaction(s,"readwrite"); t.objectStore(s).put(v).onsuccess=()=>r(); t.onerror=e=>j(e.target.error); }); }
+async function dbDel(s,k) { return new Promise((r,j) => { const t=db.transaction(s,"readwrite"); t.objectStore(s).delete(k).onsuccess=()=>r(); t.onerror=e=>j(e.target.error); }); }
 
-// ── DB helpers ──
-async function dbGetAll(store) {
-  return new Promise((res, rej) => {
-    const tx = db.transaction(store, "readonly");
-    tx.objectStore(store).getAll().onsuccess = e => res(e.target.result);
-    tx.onerror = e => rej(e.target.error);
-  });
-}
-async function dbPut(store, val) {
-  return new Promise((res, rej) => {
-    const tx = db.transaction(store, "readwrite");
-    tx.objectStore(store).put(val).onsuccess = () => res();
-    tx.onerror = e => rej(e.target.error);
-  });
-}
-async function dbDel(store, key) {
-  return new Promise((res, rej) => {
-    const tx = db.transaction(store, "readwrite");
-    tx.objectStore(store).delete(key).onsuccess = () => res();
-    tx.onerror = e => rej(e.target.error);
-  });
-}
-
-// ── Migrate from localStorage if exists ──
-async function migrateFromLocalStorage() {
-  try {
-    const raw = localStorage.getItem("notes-v3");
-    if (!raw) return;
-    const old = JSON.parse(raw);
-    if (old.courses) for (const c of old.courses) await dbPut("courses", { name: c });
-    if (old.notes) for (const n of old.notes) await dbPut("notes", n);
-    localStorage.removeItem("notes-v3");
-    console.log("[DB] Migrated from localStorage to IndexedDB");
-  } catch {}
+// Migrate old data
+async function migrate() {
+  for (const key of ["notes-v2","notes-v3"]) {
+    try { const raw=localStorage.getItem(key); if(!raw)continue; const old=JSON.parse(raw);
+      if(old.courses) for(const c of old.courses) await dbPut("courses",{name:c});
+      if(old.notes) for(const n of old.notes) await dbPut("notes",n);
+      localStorage.removeItem(key); console.log(`Migrated ${key}`);
+    } catch{}
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════════════════════════
+let courses=[], notes=[];
+let view="home"; // "home" | "course" | "note" | "live"
+let activeCourse=null, activeNote=null;
+let rec=false, noteId=null, startT=0, lines=[], interim="", wordCount=0, query="";
+let collapsedDays = new Set();
+let saveDebounce=null;
+const ct=$("content"), recBtn=$("recBtn"), tmr=$("timer"), mtr=$("meter"), mtrF=$("meterFill"), wcEl=$("wordCount");
 
-let courses = [], notes = [];
-let course = null, viewNote = null, rec = false, noteId = null, startT = 0;
-let lines = [], interim = "", query = "", wordCount = 0;
-let collapsedDays = new Set(); // tracks which day groups are collapsed
-let saveDebounce = null;
-
-const ct = $("content"), recBtn = $("recBtn"), tmr = $("timer"), mtr = $("meter"), mtrF = $("meterFill"), wcEl = $("wordCount");
+async function reload() { courses=(await dbAll("courses")).map(c=>c.name).sort(); notes=await dbAll("notes"); notes.sort((a,b)=>new Date(b.date)-new Date(a.date)); }
 
 // ══════════════════════════════════════════════════════════════════
-//  COURSES SIDEBAR
+//  NAVIGATION
 // ══════════════════════════════════════════════════════════════════
-
-async function loadCourses() {
-  courses = (await dbGetAll("courses")).map(c => c.name);
+function navigate(v, data) {
+  if (v==="home") { view="home"; activeCourse=null; activeNote=null; }
+  else if (v==="course") { view="course"; activeCourse=data; activeNote=null; }
+  else if (v==="note") { view="note"; activeNote=data; }
+  else if (v==="live") { view="live"; }
+  renderBread();
+  render();
 }
 
-async function loadNotes() {
-  notes = await dbGetAll("notes");
-  notes.sort((a, b) => new Date(b.date) - new Date(a.date));
-}
-
-function renderCourses() {
-  const cnt = {};
-  notes.forEach(n => cnt[n.course] = (cnt[n.course] || 0) + 1);
-
-  let h = `<div class="ci ${course === null ? "on" : ""}" data-c="__all__">
-    <span class="ci-icon">&#128210;</span> All Notes <span class="cc">${notes.length}</span></div>`;
-
-  courses.forEach(c => {
-    h += `<div class="ci ${course === c ? "on" : ""}" data-c="${esc(c)}">
-      <span class="ci-icon">&#128218;</span> ${esc(c)} <span class="cc">${cnt[c] || 0}</span>
-      <span class="ca"><span class="cx" data-act="del" data-n="${esc(c)}">&#10005;</span></span></div>`;
-  });
-
-  $("courses").innerHTML = h;
-  $("courses").querySelectorAll(".ci").forEach(el => el.addEventListener("click", async e => {
-    if (e.target.dataset.act === "del") {
-      const name = e.target.dataset.n;
-      if (!confirm(`Delete "${name}"?`)) return;
-      await dbDel("courses", name);
-      // Move notes to Uncategorized
-      for (const n of notes) {
-        if (n.course === name) { n.course = "Uncategorized"; await dbPut("notes", n); }
-      }
-      if (!courses.includes("Uncategorized") && notes.some(n => n.course === "Uncategorized")) {
-        await dbPut("courses", { name: "Uncategorized" });
-      }
-      if (course === name) course = null;
-      await loadCourses(); await loadNotes(); renderCourses(); renderContent();
-      return;
-    }
-    course = el.dataset.c === "__all__" ? null : el.dataset.c;
-    viewNote = null; renderCourses(); renderContent();
+function renderBread() {
+  const b=$("bread");
+  if (view==="home") { b.innerHTML=""; return; }
+  let h = `<a data-nav="home">My Courses</a>`;
+  if (view==="course"||view==="note"||view==="live") h += `<span>/</span><a data-nav="course">${esc(activeCourse)}</a>`;
+  if (view==="note") h += `<span>/</span><span>${esc(activeNote.title)}</span>`;
+  if (view==="live") h += `<span>/</span><span>Recording...</span>`;
+  b.innerHTML = h;
+  b.querySelectorAll("a").forEach(a => a.addEventListener("click", () => {
+    if (a.dataset.nav==="home") navigate("home");
+    else if (a.dataset.nav==="course") navigate("course", activeCourse);
   }));
 }
 
-// Add course
-$("addBtn").onclick = () => { $("addBtn").style.display = "none"; $("addForm").classList.add("v"); $("addInput").value = ""; setTimeout(() => $("addInput").focus(), 50); };
-async function addCourse() {
-  const name = $("addInput").value.trim();
-  if (name && !courses.includes(name)) {
-    await dbPut("courses", { name });
-    course = name;
-    await loadCourses();
-    renderCourses(); renderContent();
+function render() {
+  if (view==="live") renderLive();
+  else if (view==="note") renderDetail();
+  else if (view==="course") renderCourseNotes();
+  else renderHome();
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  HOME — Course folders grid
+// ══════════════════════════════════════════════════════════════════
+function renderHome() {
+  const cnt={};
+  notes.forEach(n => cnt[n.course]=(cnt[n.course]||0)+1);
+
+  let filtered = courses;
+  if (query) {
+    // Search across all notes
+    const matchNotes = notes.filter(n => (n.transcript||"").toLowerCase().includes(query)||(n.title||"").toLowerCase().includes(query));
+    if (matchNotes.length) {
+      // Show search results as a flat list
+      renderSearchResults(matchNotes);
+      return;
+    }
+    filtered = courses.filter(c => c.toLowerCase().includes(query));
   }
-  $("addForm").classList.remove("v"); $("addBtn").style.display = "block";
-}
-$("addOk").onclick = addCourse;
-$("addInput").onkeydown = e => { if (e.key === "Enter") addCourse(); if (e.key === "Escape") { $("addForm").classList.remove("v"); $("addBtn").style.display = "block"; } };
 
-// Search
-$("search").oninput = e => { query = e.target.value.trim().toLowerCase(); if (!rec) renderContent(); };
+  let h = `<div class="section-title">My Courses</div><div class="grid">`;
+
+  filtered.forEach(c => {
+    const count = cnt[c]||0;
+    const totalWords = notes.filter(n=>n.course===c).reduce((a,n)=>a+(n.transcript?n.transcript.split(/\s+/).filter(Boolean).length:0),0);
+    h += `<div class="folder" data-c="${esc(c)}">
+      <button class="folder-del" data-del="${esc(c)}">&#10005;</button>
+      <div class="folder-icon">&#128218;</div>
+      <h3>${esc(c)}</h3>
+      <p>${count} lecture${count!==1?"s":""} &middot; ${totalWords.toLocaleString()} words</p></div>`;
+  });
+
+  h += `<div class="add-folder" id="addFolderBtn"><span>+</span><p>Add Course</p></div>`;
+  h += `<div class="add-folder-form" id="addFolderForm"><input id="addInput" placeholder="Course name (e.g. CS101)" /><div class="btns"><button class="cancel" id="addCancel">Cancel</button><button class="ok" id="addOk">Create</button></div></div>`;
+  h += `</div>`;
+
+  if (!filtered.length && !query) {
+    h = `<div class="empty"><h2>Welcome, Justin</h2><p>Click the + button below to create your first course folder.</p></div>
+      <div style="padding:0 32px"><div class="grid">
+        <div class="add-folder" id="addFolderBtn"><span>+</span><p>Add Course</p></div>
+        <div class="add-folder-form" id="addFolderForm"><input id="addInput" placeholder="Course name (e.g. CS101)" /><div class="btns"><button class="cancel" id="addCancel">Cancel</button><button class="ok" id="addOk">Create</button></div></div>
+      </div></div>`;
+  }
+
+  ct.innerHTML = h;
+
+  // Folder click
+  ct.querySelectorAll(".folder").forEach(el => el.addEventListener("click", e => {
+    if (e.target.classList.contains("folder-del")) return;
+    navigate("course", el.dataset.c);
+  }));
+
+  // Folder delete
+  ct.querySelectorAll(".folder-del").forEach(el => el.addEventListener("click", async e => {
+    e.stopPropagation();
+    const name = el.dataset.del;
+    if (!confirm(`Delete "${name}" and all its lectures?`)) return;
+    for (const n of notes.filter(x=>x.course===name)) await dbDel("notes",n.id);
+    await dbDel("courses",name);
+    await reload(); render();
+  }));
+
+  // Add course
+  const addBtn=$("addFolderBtn"), addForm=$("addFolderForm");
+  if(addBtn) addBtn.onclick = () => { addBtn.style.display="none"; addForm.classList.add("v"); setTimeout(()=>$("addInput").focus(),50); };
+  if($("addCancel")) $("addCancel").onclick = () => { addForm.classList.remove("v"); addBtn.style.display="flex"; };
+  if($("addOk")) $("addOk").onclick = async () => {
+    const name=$("addInput").value.trim();
+    if(name&&!courses.includes(name)){await dbPut("courses",{name});await reload();navigate("course",name);}
+    else{addForm.classList.remove("v");addBtn.style.display="flex";}
+  };
+  if($("addInput")) $("addInput").onkeydown = e => { if(e.key==="Enter")$("addOk").click(); if(e.key==="Escape"){addForm.classList.remove("v");addBtn.style.display="flex";} };
+}
+
+function renderSearchResults(matchNotes) {
+  let h = `<div class="section-title">Search Results — "${esc(query)}"</div>`;
+  matchNotes.forEach(n => {
+    const wc=n.transcript?n.transcript.split(/\s+/).filter(Boolean).length:0;
+    h += `<div class="note" data-id="${esc(n.id)}"><div class="note-top"><div class="note-info"><h3>${esc(n.title)}</h3><span class="note-time">${new Date(n.date).toLocaleDateString("en-US",{month:"short",day:"numeric"})} ${new Date(n.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true})}</span></div></div>
+      <div class="note-meta"><span class="tag">${esc(n.course)}</span><span>${fmt(n.duration)}</span><span>${wc} words</span></div>
+      <div class="note-pv">${esc((n.transcript||"").slice(0,120))}</div></div>`;
+  });
+  ct.innerHTML = h;
+  ct.querySelectorAll(".note").forEach(el => el.addEventListener("click", () => {
+    activeNote=notes.find(n=>n.id===el.dataset.id);
+    if(activeNote){activeCourse=activeNote.course;view="note";renderBread();render();}
+  }));
+}
 
 // ══════════════════════════════════════════════════════════════════
-//  CONTENT — notes grouped by day
+//  COURSE VIEW — notes grouped by day
 // ══════════════════════════════════════════════════════════════════
+function renderCourseNotes() {
+  let courseNotes = notes.filter(n => n.course === activeCourse);
+  if (query) courseNotes = courseNotes.filter(n => (n.transcript||"").toLowerCase().includes(query)||(n.title||"").toLowerCase().includes(query));
 
-function renderContent() {
-  if (rec) { renderLive(); return; }
-  if (viewNote) { renderDetail(); return; }
-  renderList();
-}
-
-function renderList() {
-  let filtered = notes.filter(n => !course || n.course === course);
-  if (query) filtered = filtered.filter(n =>
-    (n.transcript || "").toLowerCase().includes(query) ||
-    (n.title || "").toLowerCase().includes(query)
-  );
-
-  if (!filtered.length) {
-    ct.innerHTML = `<div class="empty"><h2>${esc(course || "All Notes")}</h2>
-      <p>${query ? "No results." : "Add a course and start recording!"}</p></div>`;
+  if (!courseNotes.length) {
+    ct.innerHTML = `<div class="empty"><h2>${esc(activeCourse)}</h2><p>No lectures yet. Click Start Recording to begin.</p></div>`;
     return;
   }
 
   // Group by day
   const days = {};
-  filtered.forEach(n => {
-    const day = new Date(n.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-    if (!days[day]) days[day] = [];
+  courseNotes.forEach(n => {
+    const day = new Date(n.date).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
+    if(!days[day])days[day]=[];
     days[day].push(n);
   });
 
-  let h = "";
+  let h = `<div class="section-title">${esc(activeCourse)} — ${courseNotes.length} lecture${courseNotes.length!==1?"s":""}</div>`;
+
   Object.entries(days).forEach(([day, dayNotes]) => {
     const collapsed = collapsedDays.has(day);
-    const totalWords = dayNotes.reduce((a, n) => a + (n.transcript ? n.transcript.split(/\s+/).filter(Boolean).length : 0), 0);
-    const totalDur = dayNotes.reduce((a, n) => a + (n.duration || 0), 0);
+    const tw = dayNotes.reduce((a,n)=>a+(n.transcript?n.transcript.split(/\s+/).filter(Boolean).length:0),0);
+    const td = dayNotes.reduce((a,n)=>a+(n.duration||0),0);
 
-    h += `<div class="day-group">
-      <div class="day-hdr" data-day="${esc(day)}">
-        <span class="day-arrow ${collapsed ? "" : "open"}">&#9654;</span>
-        <span class="day-title">${esc(day)}</span>
-        <span class="day-stats">${dayNotes.length} lecture${dayNotes.length > 1 ? "s" : ""} &middot; ${totalWords} words &middot; ${fmt(totalDur)}</span>
-      </div>`;
+    h += `<div class="day-group"><div class="day-hdr" data-day="${esc(day)}">
+      <span class="day-arrow ${collapsed?"":"open"}">&#9654;</span>
+      <span class="day-title">${esc(day)}</span>
+      <span class="day-stats">${dayNotes.length} lecture${dayNotes.length>1?"s":""} &middot; ${tw.toLocaleString()} words &middot; ${fmt(td)}</span></div>`;
 
-    if (!collapsed) {
-      dayNotes.forEach(n => {
-        const wc = n.transcript ? n.transcript.split(/\s+/).filter(Boolean).length : 0;
-        h += `<div class="cd" data-id="${esc(n.id)}">
-          <div class="cd-t">
-            <div class="cd-info">
-              <h3>${esc(n.title)}</h3>
-              <span class="cd-time">${new Date(n.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}</span>
-            </div>
-            <button class="db" data-id="${esc(n.id)}">&#10005;</button>
-          </div>
-          <div class="mt">
-            <span class="mt-tag">${esc(n.course)}</span>
-            <span>${fmt(n.duration)}</span>
-            <span>${wc} words</span>
-          </div>
-          <div class="pv">${esc((n.transcript || "").slice(0, 120))}${(n.transcript || "").length > 120 ? "..." : ""}</div>
-        </div>`;
-      });
-    }
+    if (!collapsed) dayNotes.forEach(n => {
+      const wc=n.transcript?n.transcript.split(/\s+/).filter(Boolean).length:0;
+      const time=new Date(n.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+      h += `<div class="note" data-id="${esc(n.id)}"><div class="note-top"><div class="note-info"><h3>${esc(n.title)}</h3><span class="note-time">${time}</span></div>
+        <button class="note-del" data-id="${esc(n.id)}">&#10005;</button></div>
+        <div class="note-meta"><span>${fmt(n.duration)}</span><span>${wc} words</span></div>
+        <div class="note-pv">${esc((n.transcript||"").slice(0,120))}${(n.transcript||"").length>120?"...":""}</div></div>`;
+    });
     h += `</div>`;
   });
 
   ct.innerHTML = h;
 
-  // Day header collapse/expand
   ct.querySelectorAll(".day-hdr").forEach(el => el.addEventListener("click", () => {
-    const day = el.dataset.day;
-    if (collapsedDays.has(day)) collapsedDays.delete(day);
-    else collapsedDays.add(day);
-    renderList();
+    const d=el.dataset.day; collapsedDays.has(d)?collapsedDays.delete(d):collapsedDays.add(d); renderCourseNotes();
   }));
-
-  // Note click
-  ct.querySelectorAll(".cd").forEach(el => el.addEventListener("click", e => {
-    if (e.target.classList.contains("db")) return;
-    viewNote = notes.find(n => n.id === el.dataset.id);
-    renderContent();
+  ct.querySelectorAll(".note").forEach(el => el.addEventListener("click", e => {
+    if(e.target.classList.contains("note-del"))return;
+    activeNote=notes.find(n=>n.id===el.dataset.id); if(activeNote){view="note";renderBread();render();}
   }));
-
-  // Delete
-  ct.querySelectorAll(".db").forEach(el => el.addEventListener("click", async e => {
-    e.stopPropagation();
-    const n = notes.find(x => x.id === el.dataset.id);
-    if (n && confirm(`Delete "${n.title}"?`)) {
-      await dbDel("notes", n.id);
-      await loadNotes();
-      renderCourses(); renderContent();
-    }
+  ct.querySelectorAll(".note-del").forEach(el => el.addEventListener("click", async e => {
+    e.stopPropagation();const n=notes.find(x=>x.id===el.dataset.id);
+    if(n&&confirm(`Delete "${n.title}"?`)){await dbDel("notes",n.id);await reload();render();}
   }));
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  NOTE DETAIL
+// ══════════════════════════════════════════════════════════════════
 function renderDetail() {
-  const n = viewNote;
-  const wc = n.transcript ? n.transcript.split(/\s+/).filter(Boolean).length : 0;
-  let th = "";
-  if (n.chunks?.length) n.chunks.forEach(c => {
-    th += `<span class="ts">[${fmt(c.time)}]</span> ${esc(c.text)}\n`;
-  }); else th = esc(n.transcript) || "No transcript";
+  const n=activeNote;
+  const wc=n.transcript?n.transcript.split(/\s+/).filter(Boolean).length:0;
+  let th="";
+  if(n.chunks?.length)n.chunks.forEach(c=>th+=`<span class="ts">[${fmt(c.time)}]</span> ${esc(c.text)}\n`);
+  else th=esc(n.transcript)||"No transcript";
+  const sumH=n.summary?`<div class="summary-box"><h3>AI Summary</h3>${esc(n.summary)}</div>`:"";
+  const time=new Date(n.date).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",hour12:true});
+  const day=new Date(n.date).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric",year:"numeric"});
 
-  const sumHtml = n.summary ? `<div class="sum"><h3>AI Summary</h3>${esc(n.summary)}</div>` : "";
-  const time = new Date(n.date).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-  const day = new Date(n.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  ct.innerHTML=`<div class="detail-hdr"><h2>${esc(n.title)}</h2>
+    <div class="detail-meta"><span>${esc(day)} at ${time}</span><span>${fmt(n.duration)}</span><span>${wc.toLocaleString()} words</span><span class="tag">${esc(n.course)}</span></div>
+    <div class="detail-actions"><button class="btn btn-pri" id="sumBtn">Summarize</button><button class="btn" id="exp">Export .md</button><button class="btn btn-dng" id="del">Delete</button></div></div>
+    <div class="transcript-box">${th}</div>${sumH}`;
 
-  ct.innerHTML = `<div class="dh">
-    <div><h2>${esc(n.title)}</h2>
-      <div class="stats"><span>${esc(day)} at ${time}</span><span>${fmt(n.duration)}</span><span>${wc} words</span><span class="mt-tag">${esc(n.course)}</span></div></div>
-    <div class="bg"><button class="bt" id="back">&larr; Back</button><button class="bt pri" id="sumBtn">Summarize</button><button class="bt" id="exp">Export .md</button><button class="bt dng" id="del">Delete</button></div></div>
-    <div class="tr">${th}</div>${sumHtml}`;
-
-  $("back").onclick = () => { viewNote = null; renderContent(); };
-  $("exp").onclick = () => exportMd(n);
-  $("del").onclick = async () => { if (confirm("Delete?")) { await dbDel("notes", n.id); await loadNotes(); viewNote = null; renderCourses(); renderContent(); } };
-  $("sumBtn").onclick = () => summarize(n);
+  $("exp").onclick=()=>exportMd(n);
+  $("del").onclick=async()=>{if(confirm("Delete?")){await dbDel("notes",n.id);await reload();navigate("course",activeCourse);}};
+  $("sumBtn").onclick=()=>summarize(n);
 }
 
 // ══════════════════════════════════════════════════════════════════
-//  LIVE TRANSCRIPT
+//  LIVE RECORDING VIEW
 // ══════════════════════════════════════════════════════════════════
-
 function renderLive() {
-  let h = "";
-  lines.forEach(l => h += `<div class="ln"><span class="ts">[${fmt(l.time)}]</span> ${esc(l.text)}</div>`);
-  if (interim) h += `<div class="ln it">${esc(interim)}</div>`;
-  if (!h) h = `<div class="ln it">Listening... speak into your microphone.</div>`;
-  ct.innerHTML = h;
-  ct.scrollTop = ct.scrollHeight;
+  let h="";
+  lines.forEach(l=>h+=`<div class="live-line"><span class="ts">[${fmt(l.time)}]</span> ${esc(l.text)}</div>`);
+  if(interim)h+=`<div class="live-line live-interim">${esc(interim)}</div>`;
+  if(!h)h=`<div class="live-line live-interim">Listening... speak into your microphone.</div>`;
+  ct.innerHTML=h;
+  ct.scrollTop=ct.scrollHeight;
 }
 
 // ══════════════════════════════════════════════════════════════════
 //  RECORDING
 // ══════════════════════════════════════════════════════════════════
+let recognition=null,timerInt=null,audioCtx=null,analyser=null,micStream=null,raf=null;
 
-let recognition = null, timerInt = null, audioCtx = null, analyser = null, micStream = null, raf = null;
-
-recBtn.onclick = () => rec ? stopRec() : startRec();
-document.onkeydown = e => { if (e.ctrlKey && e.key === "r") { e.preventDefault(); rec ? stopRec() : startRec(); } };
+recBtn.onclick=()=>rec?stopRec():startRec();
+document.onkeydown=e=>{if(e.ctrlKey&&e.key==="r"){e.preventDefault();rec?stopRec():startRec();}};
 
 async function startRec() {
-  if (!course) { alert("Select or add a course first."); return; }
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { alert("Use Chrome for speech recognition."); return; }
+  if(!activeCourse){alert("Open a course folder first.");return;}
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){alert("Use Chrome.");return;}
 
-  const now = new Date();
-  const id = Date.now().toString(36) + Math.random().toString(36).slice(2);
-  // Temporary title — will be replaced with auto-summary after recording
-  const title = `Recording — ${now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}`;
-
-  const noteObj = { id, course, title, date: now.toISOString(), transcript: "", chunks: [], duration: 0, summary: "" };
-  await dbPut("notes", noteObj);
+  const now=new Date();
+  const id=Date.now().toString(36)+Math.random().toString(36).slice(2);
+  const noteObj={id,course:activeCourse,title:"Recording...",date:now.toISOString(),transcript:"",chunks:[],duration:0,summary:""};
+  await dbPut("notes",noteObj);
   notes.unshift(noteObj);
+  noteId=id;lines=[];interim="";startT=Date.now();rec=true;wordCount=0;
 
-  noteId = id; lines = []; interim = ""; startT = Date.now(); rec = true; wordCount = 0;
+  recognition=new SR();recognition.continuous=true;recognition.interimResults=true;recognition.lang="en-US";
 
-  recognition = new SR();
-  recognition.continuous = true;
-  recognition.interimResults = true;
-  recognition.lang = "en-US";
-
-  recognition.onresult = e => {
-    const elapsed = (Date.now() - startT) / 1000;
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const r = e.results[i], text = r[0].transcript.trim(), conf = r[0].confidence || 0.8;
-      if (r.isFinal && text) {
-        lines.push({ text, time: elapsed, confidence: conf });
-        interim = "";
-        wordCount += text.split(/\s+/).length;
-        wcEl.textContent = `${wordCount} words`;
-        const n = notes.find(x => x.id === noteId);
-        if (n) {
-          n.transcript += (n.transcript ? " " : "") + text;
-          n.chunks.push({ text, time: elapsed, confidence: conf });
-          n.duration = Math.round(elapsed);
-          debouncedSave(n);
-        }
-      } else { interim = text; }
+  recognition.onresult=e=>{
+    const elapsed=(Date.now()-startT)/1000;
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const r=e.results[i],text=r[0].transcript.trim(),conf=r[0].confidence||.8;
+      if(r.isFinal&&text){
+        lines.push({text,time:elapsed,confidence:conf});interim="";
+        wordCount+=text.split(/\s+/).length;wcEl.textContent=`${wordCount} words`;
+        const n=notes.find(x=>x.id===noteId);
+        if(n){n.transcript+=(n.transcript?" ":"")+text;n.chunks.push({text,time:elapsed,confidence:conf});n.duration=Math.round(elapsed);debouncedSave(n);}
+      }else{interim=text;}
     }
     renderLive();
   };
-
-  recognition.onerror = e => { if (e.error === "not-allowed") { alert("Microphone denied."); stopRec(); } };
-  recognition.onend = () => { if (rec) try { recognition.start(); } catch {} };
+  recognition.onerror=e=>{if(e.error==="not-allowed"){alert("Mic denied.");stopRec();}};
+  recognition.onend=()=>{if(rec)try{recognition.start();}catch{}};
   recognition.start();
 
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
-    micStream = stream;
-    audioCtx = new AudioContext();
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 256;
+  navigator.mediaDevices.getUserMedia({audio:true}).then(stream=>{
+    micStream=stream;audioCtx=new AudioContext();analyser=audioCtx.createAnalyser();analyser.fftSize=256;
     audioCtx.createMediaStreamSource(stream).connect(analyser);
-    const buf = new Uint8Array(analyser.frequencyBinCount);
-    function tick() { if (!rec) return; analyser.getByteFrequencyData(buf); let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i]; mtrF.style.width = `${Math.min(100, (s / (buf.length * 255)) * 400)}%`; raf = requestAnimationFrame(tick); }
+    const buf=new Uint8Array(analyser.frequencyBinCount);
+    function tick(){if(!rec)return;analyser.getByteFrequencyData(buf);let s=0;for(let i=0;i<buf.length;i++)s+=buf[i];mtrF.style.width=`${Math.min(100,(s/(buf.length*255))*400)}%`;raf=requestAnimationFrame(tick);}
     tick();
-  }).catch(() => {});
+  }).catch(()=>{});
 
-  recBtn.textContent = "Stop Recording"; recBtn.className = "rb on";
-  tmr.style.display = "inline"; mtr.style.display = "block"; wcEl.style.display = "inline";
-  timerInt = setInterval(() => tmr.textContent = fmt((Date.now() - startT) / 1000), 500);
-  renderContent();
+  recBtn.textContent="Stop Recording";recBtn.className="nav-rec on";
+  tmr.style.display="inline";mtr.style.display="block";wcEl.style.display="inline";
+  timerInt=setInterval(()=>tmr.textContent=fmt((Date.now()-startT)/1000),500);
+  navigate("live");
 }
 
-function debouncedSave(n) {
-  if (saveDebounce) return;
-  saveDebounce = setTimeout(async () => {
-    saveDebounce = null;
-    await dbPut("notes", n);
-  }, 3000);
+function debouncedSave(n){if(saveDebounce)return;saveDebounce=setTimeout(async()=>{saveDebounce=null;await dbPut("notes",n);},3000);}
+
+async function stopRec(){
+  rec=false;
+  if(recognition){recognition.onend=null;recognition.stop();recognition=null;}
+  if(raf)cancelAnimationFrame(raf);if(audioCtx)audioCtx.close().catch(()=>{});
+  if(micStream)micStream.getTracks().forEach(t=>t.stop());
+  clearInterval(timerInt);if(saveDebounce){clearTimeout(saveDebounce);saveDebounce=null;}
+  mtrF.style.width="0%";
+
+  const n=notes.find(x=>x.id===noteId);
+  if(n){n.duration=Math.round((Date.now()-startT)/1000);n.title=genTitle(n.transcript,n.date);await dbPut("notes",n);}
+
+  recBtn.textContent="Start Recording";recBtn.className="nav-rec idle";
+  tmr.style.display="none";mtr.style.display="none";wcEl.style.display="none";
+  noteId=null;await reload();navigate("course",activeCourse);
 }
 
-async function stopRec() {
-  rec = false;
-  if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
-  if (raf) cancelAnimationFrame(raf);
-  if (audioCtx) audioCtx.close().catch(() => {});
-  if (micStream) micStream.getTracks().forEach(t => t.stop());
-  clearInterval(timerInt);
-  if (saveDebounce) { clearTimeout(saveDebounce); saveDebounce = null; }
-  mtrF.style.width = "0%";
-
-  const n = notes.find(x => x.id === noteId);
-  if (n) {
-    n.duration = Math.round((Date.now() - startT) / 1000);
-    // Auto-generate title from transcript
-    n.title = generateTitle(n.transcript, n.date);
-    await dbPut("notes", n);
-  }
-
-  recBtn.textContent = "Start Recording"; recBtn.className = "rb idle";
-  tmr.style.display = "none"; mtr.style.display = "none"; wcEl.style.display = "none";
-  noteId = null;
-  await loadNotes();
-  renderCourses(); renderContent();
-}
-
-// ══════════════════════════════════════════════════════════════════
-//  AUTO TITLE — generates a short summary from transcript
-// ══════════════════════════════════════════════════════════════════
-
-function generateTitle(transcript, date) {
-  if (!transcript || transcript.length < 20) {
-    return new Date(date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " — Recording";
-  }
-
-  // Extract key phrases: take the first meaningful sentence
-  const sentences = transcript.match(/[^.!?]+[.!?]*/g) || [transcript];
-  const first = sentences[0].trim();
-
-  // Find the most important words (frequency-based)
-  const words = transcript.toLowerCase().split(/\s+/).filter(w => w.length > 4);
-  const freq = {};
-  words.forEach(w => freq[w] = (freq[w] || 0) + 1);
-  const topWords = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([w]) => w);
-
-  // Title = first 8 words of first sentence, or top keywords
-  const titleWords = first.split(/\s+/).slice(0, 8).join(" ");
-  let title = titleWords.length > 10 ? titleWords : topWords.join(", ");
-
-  // Clean up and capitalize
-  title = title.replace(/[.!?,;:]+$/, "").trim();
-  title = title.charAt(0).toUpperCase() + title.slice(1);
-
-  // Max 50 chars
-  if (title.length > 50) title = title.slice(0, 47) + "...";
-
-  return title || "Recording";
+function genTitle(t,date){
+  if(!t||t.length<20)return new Date(date).toLocaleDateString("en-US",{month:"short",day:"numeric"})+" — Recording";
+  const s=(t.match(/[^.!?]+[.!?]*/g)||[t])[0].trim();
+  let title=s.split(/\s+/).slice(0,8).join(" ").replace(/[.!?,;:]+$/,"").trim();
+  title=title.charAt(0).toUpperCase()+title.slice(1);
+  return title.length>50?title.slice(0,47)+"...":title||"Recording";
 }
 
 // ══════════════════════════════════════════════════════════════════
 //  AI SUMMARY
 // ══════════════════════════════════════════════════════════════════
-
-async function summarize(n) {
-  if (!n.transcript) { alert("No transcript."); return; }
-  const btn = $("sumBtn");
-  btn.textContent = "Summarizing..."; btn.disabled = true;
-
-  try {
-    if (window.ai?.createTextSession) {
-      const s = await window.ai.createTextSession();
-      n.summary = await s.prompt(`Summarize this lecture:\n\n1. Main Topic (1 sentence)\n2. Key Points (3-5 bullets)\n3. Important Terms\n\n${n.transcript.slice(0, 4000)}`);
-      s.destroy();
-    } else {
-      n.summary = extractiveSummary(n.transcript);
-    }
-  } catch { n.summary = extractiveSummary(n.transcript); }
-
-  await dbPut("notes", n);
-  renderDetail();
+async function summarize(n){
+  if(!n.transcript){alert("No transcript.");return;}
+  $("sumBtn").textContent="Summarizing...";$("sumBtn").disabled=true;
+  try{if(window.ai?.createTextSession){const s=await window.ai.createTextSession();n.summary=await s.prompt(`Summarize:\n\n1. Main Topic\n2. Key Points (3-5)\n3. Terms\n\n${n.transcript.slice(0,4000)}`);s.destroy();}
+  else n.summary=exSum(n.transcript);}catch{n.summary=exSum(n.transcript);}
+  await dbPut("notes",n);renderDetail();
 }
-
-function extractiveSummary(text) {
-  const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-  const words = text.toLowerCase().split(/\s+/);
-  const freq = {};
-  words.forEach(w => { if (w.length > 3) freq[w] = (freq[w] || 0) + 1; });
-  const scored = sentences.map(s => {
-    const sw = s.toLowerCase().split(/\s+/);
-    return { s: s.trim(), score: sw.reduce((a, w) => a + (freq[w] || 0), 0) / sw.length };
-  }).sort((a, b) => b.score - a.score);
-  const topW = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([w]) => w);
-  return `Key Points:\n${scored.slice(0, 5).map(x => `- ${x.s}`).join("\n")}\n\nKey Terms: ${topW.join(", ")}`;
-}
+function exSum(t){const s=t.match(/[^.!?]+[.!?]+/g)||[t];const w=t.toLowerCase().split(/\s+/);const f={};w.forEach(x=>{if(x.length>3)f[x]=(f[x]||0)+1;});const sc=s.map(x=>({s:x.trim(),sc:x.toLowerCase().split(/\s+/).reduce((a,w)=>a+(f[w]||0),0)/x.split(/\s+/).length})).sort((a,b)=>b.sc-a.sc);const tw=Object.entries(f).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([w])=>w);return`Key Points:\n${sc.slice(0,5).map(x=>`- ${x.s}`).join("\n")}\n\nKey Terms: ${tw.join(", ")}`;}
 
 // ══════════════════════════════════════════════════════════════════
 //  EXPORT
 // ══════════════════════════════════════════════════════════════════
+function exportMd(n){const d=new Date(n.date).toISOString().split("T")[0];const wc=n.transcript?n.transcript.split(/\s+/).filter(Boolean).length:0;const l=[`# ${n.title}`,"",`**Course:** ${n.course}`,`**Duration:** ${fmt(n.duration)}`,`**Words:** ${wc}`,"","---","","## Transcript",""];if(n.chunks?.length)n.chunks.forEach(c=>l.push(`\`[${fmt(c.time)}]\` ${c.text}`,""));else l.push(n.transcript||"_No transcript_");if(n.summary)l.push("","---","","## Summary","",n.summary);const blob=new Blob([l.join("\n")],{type:"text/markdown"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`${d}-${n.course.replace(/[^a-zA-Z0-9]+/g,"-")}.md`;a.click();URL.revokeObjectURL(a.href);}
 
-function exportMd(n) {
-  const d = new Date(n.date).toISOString().split("T")[0];
-  const wc = n.transcript ? n.transcript.split(/\s+/).filter(Boolean).length : 0;
-  const l = [`# ${n.title}`, "", `**Course:** ${n.course}`, `**Duration:** ${fmt(n.duration)}`, `**Words:** ${wc}`, "", "---", "", "## Transcript", ""];
-  if (n.chunks?.length) n.chunks.forEach(c => l.push(`\`[${fmt(c.time)}]\` ${c.text}`, ""));
-  else l.push(n.transcript || "_No transcript_");
-  if (n.summary) l.push("", "---", "", "## Summary", "", n.summary);
-  const blob = new Blob([l.join("\n")], { type: "text/markdown" });
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-  a.download = `${d}-${n.course.replace(/[^a-zA-Z0-9]+/g, "-")}.md`;
-  a.click(); URL.revokeObjectURL(a.href);
-}
+// ══════════════════════════════════════════════════════════════════
+//  SEARCH
+// ══════════════════════════════════════════════════════════════════
+$("search").oninput=e=>{query=e.target.value.trim().toLowerCase();if(!rec)render();};
 
 // ══════════════════════════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════════════════════════
-
-(async () => {
-  await openDB();
-  await migrateFromLocalStorage();
-  await loadCourses();
-  await loadNotes();
-  renderCourses();
-  renderContent();
-})();
+(async()=>{await openDB();await migrate();await reload();render();})();
