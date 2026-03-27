@@ -95,16 +95,49 @@ export default function App() {
   const startRecording = useCallback(async () => {
     setError(null);
 
-    // Request microphone permission from the side panel (visible page).
-    // Offscreen documents are invisible so Chrome auto-dismisses mic prompts there.
-    // We get the stream here to trigger the permission dialog, then immediately
-    // stop it — the offscreen doc will create its own stream.
+    // Check if we already have mic permission by trying a quick getUserMedia.
+    // Side panels can't always trigger the permission prompt, so we open
+    // a popup window if permission isn't granted yet.
+    let hasMicPermission = false;
     try {
       const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       testStream.getTracks().forEach((t) => t.stop());
-    } catch (err) {
-      setError("Microphone access denied. Click the lock icon in the address bar → Site settings → Microphone → Allow");
-      return;
+      hasMicPermission = true;
+    } catch {
+      // Permission not granted — open a popup to request it
+    }
+
+    if (!hasMicPermission) {
+      // Open a small popup window that requests mic access with a visible prompt
+      chrome.windows.create({
+        url: chrome.runtime.getURL("mic-permission.html"),
+        type: "popup",
+        width: 400,
+        height: 300,
+        focused: true,
+      });
+
+      // Wait for the permission result via message
+      return new Promise((resolve) => {
+        const handler = (msg) => {
+          if (msg.type === "mic-permission-granted") {
+            chrome.runtime.onMessage.removeListener(handler);
+            // Now start recording
+            chrome.runtime.sendMessage({ type: "start-recording" }, (res) => {
+              if (res && !res.ok) setError(res.error || "Failed to start recording");
+            });
+            resolve();
+          }
+        };
+        chrome.runtime.onMessage.addListener(handler);
+
+        // Timeout after 30 seconds
+        setTimeout(() => {
+          chrome.runtime.onMessage.removeListener(handler);
+          setError("Microphone permission was not granted. Please try again and click Allow.");
+          resolve();
+        }, 30000);
+      });
     }
 
     chrome.runtime.sendMessage({ type: "start-recording" }, (res) => {

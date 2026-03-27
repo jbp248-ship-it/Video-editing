@@ -38,7 +38,8 @@
         "models/*",
         "wasm/*",
         "audio-processor.js",
-        "offscreen.html"
+        "offscreen.html",
+        "mic-permission.html"
       ],
       "matches": ["<all_urls>"]
     }
