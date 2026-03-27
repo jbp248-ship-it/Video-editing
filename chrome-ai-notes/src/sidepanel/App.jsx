@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { getNotesPage } from "../storage/db.js";
+import { startMicCapture, stopMicCapture } from "./mic-capture.js";
 import LiveTranscript from "./LiveTranscript.jsx";
 import NotesList from "./NotesList.jsx";
 import NoteDetail from "./NoteDetail.jsx";
@@ -95,59 +96,27 @@ export default function App() {
   const startRecording = useCallback(async () => {
     setError(null);
 
-    // Check if we already have mic permission by trying a quick getUserMedia.
-    // Side panels can't always trigger the permission prompt, so we open
-    // a popup window if permission isn't granted yet.
-    let hasMicPermission = false;
+    // Step 1: Start mic capture directly in the side panel.
+    // The side panel is a visible context so Chrome will show the mic permission prompt.
     try {
-      const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      testStream.getTracks().forEach((t) => t.stop());
-      hasMicPermission = true;
-    } catch {
-      // Permission not granted — open a popup to request it
+      await startMicCapture();
+    } catch (err) {
+      setError("Microphone access denied. Please allow microphone access and try again.");
+      return;
     }
 
-    if (!hasMicPermission) {
-      // Open a small popup window that requests mic access with a visible prompt
-      chrome.windows.create({
-        url: chrome.runtime.getURL("mic-permission.html"),
-        type: "popup",
-        width: 400,
-        height: 300,
-        focused: true,
-      });
-
-      // Wait for the permission result via message
-      return new Promise((resolve) => {
-        const handler = (msg) => {
-          if (msg.type === "mic-permission-granted") {
-            chrome.runtime.onMessage.removeListener(handler);
-            // Now start recording
-            chrome.runtime.sendMessage({ type: "start-recording" }, (res) => {
-              if (res && !res.ok) setError(res.error || "Failed to start recording");
-            });
-            resolve();
-          }
-        };
-        chrome.runtime.onMessage.addListener(handler);
-
-        // Timeout after 30 seconds
-        setTimeout(() => {
-          chrome.runtime.onMessage.removeListener(handler);
-          setError("Microphone permission was not granted. Please try again and click Allow.");
-          resolve();
-        }, 30000);
-      });
-    }
-
+    // Step 2: Tell the service worker to start a recording session
+    // (creates the note, starts inference queue). No offscreen doc needed.
     chrome.runtime.sendMessage({ type: "start-recording" }, (res) => {
       if (res && !res.ok) {
+        stopMicCapture();
         setError(res.error || "Failed to start recording");
       }
     });
   }, []);
 
   const stopRecording = useCallback(() => {
+    stopMicCapture();
     chrome.runtime.sendMessage({ type: "stop-recording" });
   }, []);
 

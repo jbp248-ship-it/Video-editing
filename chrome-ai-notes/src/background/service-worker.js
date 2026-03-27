@@ -221,21 +221,11 @@ async function handleStartRecording() {
     });
     recordingStartTime = Date.now();
 
-    // 4. Create offscreen document
-    await ensureOffscreenDocument();
+    // 4. Mic capture is handled by the side panel (mic-capture.js).
+    //    Audio chunks arrive via chrome.runtime.sendMessage("audio-chunk").
+    //    No offscreen document needed for microphone mode.
 
-    if (signal.aborted) throw new Error("Recording start was cancelled");
-
-    // 5. Start capture — microphone mode (no tabCapture needed)
-    const response = await chrome.runtime.sendMessage({
-      type: "start-capture",
-      mode: "microphone",
-    });
-    if (response && !response.ok) {
-      throw new Error(response.error || "Microphone capture failed");
-    }
-
-    // 7. Activate
+    // 5. Activate
     recordingState = "recording";
     lastAudioChunkTime = Date.now();
     startHeartbeat();
