@@ -235,7 +235,7 @@ async function handleStartRecording() {
     inferenceRunning = false;
 
     broadcast({ type: "recording-started", noteId: currentNoteId });
-    console.log(`[SW] Recording started — note ${currentNoteId}, tab ${tab.id}`);
+    console.log(`[SW] Recording started — note ${currentNoteId}, tab ${tab?.id || "none"}`);
 
   } catch (err) {
     recordingState = "idle";
@@ -267,10 +267,9 @@ function handleStopRecording(reason = "user-requested") {
     return;
   }
 
-  chrome.runtime.sendMessage({ type: "stop-capture" }).catch(() => {
-    // Offscreen doc already gone
-    onCaptureStopped();
-  });
+  // Mic capture is stopped by the side panel (mic-capture.js).
+  // It sends "capture-stopped" when done. Just trigger it directly.
+  onCaptureStopped();
 }
 
 function onCaptureStopped() {
@@ -408,24 +407,6 @@ async function handleExportMarkdown(noteId) {
   const note = await getNote(noteId);
   if (!note) throw new Error(`Note ${noteId} not found`);
   return noteToMarkdown(note);
-}
-
-// ══════════════════════════════════════════════════════════════════════
-//  OFFSCREEN DOCUMENT
-// ══════════════════════════════════════════════════════════════════════
-
-async function ensureOffscreenDocument() {
-  const contexts = await chrome.runtime.getContexts({
-    contextTypes: ["OFFSCREEN_DOCUMENT"],
-  });
-  if (contexts.length > 0) return;
-
-  // After build, offscreen.html lives at dist/offscreen.html (flat)
-  await chrome.offscreen.createDocument({
-    url: chrome.runtime.getURL("offscreen.html"),
-    reasons: ["USER_MEDIA"],
-    justification: "Tab audio capture requires AudioContext (unavailable in service workers)",
-  });
 }
 
 // ══════════════════════════════════════════════════════════════════════

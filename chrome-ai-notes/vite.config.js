@@ -21,6 +21,7 @@ const staticTargets = [
   { src: "icons/*.png", dest: "icons" },
   { src: "src/offscreen/offscreen.html", dest: "." },
   { src: "src/mic-permission.html", dest: "." },
+  { src: "src/mic-permission.js", dest: "." },
 ];
 
 // Only copy models if they've been downloaded

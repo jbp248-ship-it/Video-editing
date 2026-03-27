@@ -5,10 +5,8 @@
   "description": "100% offline AI note-taker. Transcribes tab audio with Whisper (WebGPU) and summarizes with Gemini Nano.",
   "permissions": [
     "sidePanel",
-    "tabCapture",
     "storage",
     "unlimitedStorage",
-    "offscreen",
     "alarms",
     "tabs"
   ],
@@ -38,8 +36,8 @@
         "models/*",
         "wasm/*",
         "audio-processor.js",
-        "offscreen.html",
-        "mic-permission.html"
+        "mic-permission.html",
+        "mic-permission.js"
       ],
       "matches": ["<all_urls>"]
     }
