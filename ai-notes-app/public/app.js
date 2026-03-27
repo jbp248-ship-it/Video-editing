@@ -108,7 +108,10 @@ function renderHome() {
     filtered = courses.filter(c => c.toLowerCase().includes(query));
   }
 
-  let h = `<div class="section-title">My Courses</div><div class="grid">`;
+  const hr = new Date().getHours();
+  const greet = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
+  let h = `<div class="greeting"><h2>${greet}, <span>Justin</span></h2><p>What are we learning today?</p></div>`;
+  h += `<div class="section-title">My Courses</div><div class="grid">`;
 
   filtered.forEach(c => {
     const count = cnt[c]||0;
@@ -125,7 +128,9 @@ function renderHome() {
   h += `</div>`;
 
   if (!filtered.length && !query) {
-    h = `<div class="empty"><h2>Welcome, Justin</h2><p>Click the + button below to create your first course folder.</p></div>
+    const hr = new Date().getHours();
+    const greet = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
+    h = `<div class="greeting"><h2>${greet}, <span>Justin</span></h2><p>What are we learning today?</p></div>
       <div style="padding:0 32px"><div class="grid">
         <div class="add-folder" id="addFolderBtn"><span>+</span><p>Add Course</p></div>
         <div class="add-folder-form" id="addFolderForm"><input id="addInput" placeholder="Course name (e.g. CS101)" /><div class="btns"><button class="cancel" id="addCancel">Cancel</button><button class="ok" id="addOk">Create</button></div></div>
