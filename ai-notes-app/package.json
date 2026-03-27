@@ -1,0 +1,9 @@
+{
+  "name": "ai-note-taker",
+  "version": "2.0.0",
+  "description": "AI Note Taker — instant lecture transcription in Chrome",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
