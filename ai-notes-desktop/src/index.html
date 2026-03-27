@@ -47,7 +47,6 @@
       height: 8px;
       background: #6366f1;
       border-radius: 2px;
-      display: inline-block;
     }
 
     .sidebar-header p {
@@ -61,7 +60,7 @@
       padding: 0 16px 12px;
     }
 
-    .search-box input {
+    .search-box input, .add-course-input {
       width: 100%;
       padding: 8px 12px;
       background: rgba(255,255,255,0.04);
@@ -74,8 +73,8 @@
       transition: border-color 0.2s, background 0.2s;
     }
 
-    .search-box input::placeholder { color: #3d4555; }
-    .search-box input:focus {
+    .search-box input::placeholder, .add-course-input::placeholder { color: #3d4555; }
+    .search-box input:focus, .add-course-input:focus {
       border-color: #6366f1;
       background: rgba(99,102,241,0.05);
     }
@@ -98,6 +97,7 @@
       gap: 8px;
       margin-bottom: 1px;
       transition: all 0.15s;
+      user-select: none;
     }
 
     .course-item:hover { background: rgba(255,255,255,0.04); color: #c8d1e0; }
@@ -116,11 +116,7 @@
       background: rgba(99,102,241,0.2);
     }
 
-    .course-actions {
-      display: none;
-      gap: 2px;
-    }
-
+    .course-actions { display: none; gap: 2px; }
     .course-item:hover .course-actions { display: flex; }
 
     .course-action {
@@ -131,11 +127,14 @@
       border-radius: 4px;
       transition: all 0.15s;
     }
-
     .course-action:hover { opacity: 1; background: rgba(255,255,255,0.08); }
 
+    /* ── Add course: inline input that appears on click ── */
+    .add-course-area {
+      padding: 4px 12px 8px;
+    }
+
     .add-course-btn {
-      margin: 8px 12px;
       padding: 9px;
       background: transparent;
       border: 1px dashed rgba(255,255,255,0.1);
@@ -146,12 +145,49 @@
       cursor: pointer;
       text-align: center;
       transition: all 0.2s;
+      width: 100%;
     }
 
     .add-course-btn:hover {
       border-color: rgba(99,102,241,0.3);
       color: #a5b4fc;
       background: rgba(99,102,241,0.05);
+    }
+
+    .add-course-form {
+      display: none;
+    }
+
+    .add-course-form.visible {
+      display: flex;
+      gap: 6px;
+    }
+
+    .add-course-form .add-ok {
+      padding: 8px 12px;
+      background: #6366f1;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .add-course-form .add-ok:hover { background: #5558e6; }
+
+    .source-badge {
+      font-size: 10px;
+      font-weight: 600;
+      background: rgba(99,102,241,0.15);
+      color: #a5b4fc;
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-left: 6px;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
     }
 
     .sidebar-footer {
@@ -168,21 +204,8 @@
       padding: 3px 0;
     }
 
-    .source-badge {
-      font-size: 10px;
-      font-weight: 600;
-      background: rgba(99,102,241,0.15);
-      color: #a5b4fc;
-      padding: 2px 8px;
-      border-radius: 10px;
-      margin-left: 6px;
-      letter-spacing: 0.3px;
-      text-transform: uppercase;
-    }
-
     .net-dot, .ext-dot {
-      width: 6px; height: 6px; border-radius: 50%; display: inline-block;
-      flex-shrink: 0;
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
     }
     .net-dot.online, .ext-dot.connected { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.4); }
     .net-dot.offline { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,0.4); }
@@ -194,7 +217,6 @@
       display: flex;
       flex-direction: column;
       min-width: 0;
-      background: #0c0f1a;
     }
 
     .toolbar {
@@ -257,7 +279,7 @@
       width: 0%;
     }
 
-    /* ── Content area ── */
+    /* ── Content ── */
     .content {
       flex: 1;
       overflow-y: auto;
@@ -274,12 +296,10 @@
       font-weight: 600;
       color: #525c70;
       margin-bottom: 8px;
-      letter-spacing: -0.3px;
     }
 
-    .empty-state p { color: #3d4555; font-size: 14px; }
+    .empty-state p { color: #3d4555; font-size: 14px; line-height: 1.6; }
 
-    /* ── Live transcript ── */
     .transcript-line {
       padding: 8px 0;
       font-size: 15px;
@@ -299,12 +319,8 @@
       margin-right: 10px;
     }
 
-    .interim {
-      color: #525c70;
-      font-style: italic;
-    }
+    .interim { color: #525c70; font-style: italic; }
 
-    /* ── Notes list ── */
     .note-card {
       padding: 16px 18px;
       background: #141825;
@@ -327,7 +343,6 @@
       font-weight: 600;
       color: #e8ecf4;
       margin-bottom: 6px;
-      letter-spacing: -0.2px;
     }
 
     .note-card .meta {
@@ -344,7 +359,6 @@
       line-height: 1.5;
     }
 
-    /* ── Note detail ── */
     .note-detail-header {
       display: flex;
       justify-content: space-between;
@@ -356,7 +370,6 @@
       font-size: 22px;
       font-weight: 700;
       color: #e8ecf4;
-      letter-spacing: -0.3px;
     }
 
     .note-detail-header .meta {
@@ -364,6 +377,7 @@
       color: #525c70;
       display: flex;
       gap: 14px;
+      margin-top: 4px;
     }
 
     .btn-group { display: flex; gap: 8px; }
@@ -397,7 +411,7 @@
       overflow-y: auto;
     }
 
-    /* ── Modal ── */
+    /* ── Rename modal (kept simple) ── */
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -443,15 +457,12 @@
     .modal input::placeholder { color: #3d4555; }
 
     .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
-
     .modal-actions .btn-primary {
       background: #6366f1;
       border-color: #6366f1;
       color: #fff;
     }
-    .modal-actions .btn-primary:hover {
-      background: #5558e6;
-    }
+    .modal-actions .btn-primary:hover { background: #5558e6; }
 
     /* ── Scrollbar ── */
     ::-webkit-scrollbar { width: 5px; }
@@ -459,12 +470,10 @@
     ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
 
-    /* ── Animations ── */
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(4px); }
       to { opacity: 1; transform: translateY(0); }
     }
-
     .note-card { animation: fadeIn 0.2s ease-out; }
   </style>
 </head>
@@ -478,10 +487,19 @@
       <input type="text" id="searchInput" placeholder="Search lectures..." />
     </div>
     <div class="course-list" id="courseList"></div>
-    <div class="add-course-btn" id="addCourseBtn">+ Add Course</div>
+
+    <!-- Add course: inline input, no modal needed -->
+    <div class="add-course-area">
+      <button class="add-course-btn" id="addCourseBtn">+ Add Course</button>
+      <div class="add-course-form" id="addCourseForm">
+        <input type="text" class="add-course-input" id="addCourseInput" placeholder="Course name..." />
+        <button class="add-ok" id="addCourseOk">Add</button>
+      </div>
+    </div>
+
     <div class="sidebar-footer">
       <div id="networkStatus"></div>
-      <div class="extension-status" id="extStatus">
+      <div id="extStatus">
         <span class="ext-dot disconnected"></span> Extension: not connected
       </div>
     </div>
@@ -499,18 +517,19 @@
     <div class="content" id="content">
       <div class="empty-state">
         <h2>Welcome to AI Note Taker</h2>
-        <p>Add a course in the sidebar, then click Start Recording to begin.</p>
+        <p>Add a course in the sidebar, then click<br/>Start Recording to begin transcribing.</p>
       </div>
     </div>
   </div>
 
+  <!-- Modal for rename only -->
   <div class="modal-overlay" id="modal" style="display:none">
     <div class="modal">
-      <h3 id="modalTitle">Add Course</h3>
-      <input type="text" id="modalInput" placeholder="e.g. CS101 — Intro to Computer Science" />
+      <h3 id="modalTitle">Rename Course</h3>
+      <input type="text" id="modalInput" placeholder="New name..." autofocus />
       <div class="modal-actions">
         <button class="btn" id="modalCancel">Cancel</button>
-        <button class="btn btn-primary" id="modalOk">Add</button>
+        <button class="btn btn-primary" id="modalOk">Save</button>
       </div>
     </div>
   </div>

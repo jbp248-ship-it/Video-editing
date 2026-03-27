@@ -82,7 +82,6 @@ let levelAnimFrame = null;
 // ══════════════════════════════════════════════════════════════════
 
 const courseListEl = document.getElementById("courseList");
-const addCourseBtn = document.getElementById("addCourseBtn");
 const recordBtn = document.getElementById("recordBtn");
 const timerEl = document.getElementById("timer");
 const meterContainer = document.getElementById("meterContainer");
@@ -195,13 +194,13 @@ function renderCourses() {
   });
 }
 
-// ── Modal helper ──
+// ── Modal helper (used only for rename) ──
 function showModal(title, defaultValue, onOk) {
   modalTitle.textContent = title;
   modalInput.value = defaultValue || "";
   modal.style.display = "flex";
-  modalInput.focus();
-  modalInput.select();
+  // Delay focus to ensure the modal is visible first
+  setTimeout(() => { modalInput.focus(); modalInput.select(); }, 50);
 
   modalOk.onclick = () => {
     const val = modalInput.value.trim();
@@ -210,20 +209,50 @@ function showModal(title, defaultValue, onOk) {
   };
 }
 
+// ── Inline Add Course (no modal — directly in sidebar) ──
+const addCourseBtn = document.getElementById("addCourseBtn");
+const addCourseForm = document.getElementById("addCourseForm");
+const addCourseInput = document.getElementById("addCourseInput");
+const addCourseOk = document.getElementById("addCourseOk");
+
 addCourseBtn.addEventListener("click", () => {
-  showModal("Add Course", "", (name) => {
-    if (name && !data.courses.includes(name)) {
-      data.courses.push(name);
-      saveData(data);
-      activeCourse = name;
-      renderCourses();
-      renderContent();
-    }
-  });
+  addCourseBtn.style.display = "none";
+  addCourseForm.classList.add("visible");
+  addCourseInput.value = "";
+  setTimeout(() => addCourseInput.focus(), 50);
+});
+
+function submitCourse() {
+  const name = addCourseInput.value.trim();
+  if (name && !data.courses.includes(name)) {
+    data.courses.push(name);
+    saveData(data);
+    activeCourse = name;
+    renderCourses();
+    renderContent();
+  }
+  addCourseForm.classList.remove("visible");
+  addCourseBtn.style.display = "block";
+}
+
+addCourseOk.addEventListener("click", submitCourse);
+addCourseInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") submitCourse();
+  if (e.key === "Escape") {
+    addCourseForm.classList.remove("visible");
+    addCourseBtn.style.display = "block";
+  }
 });
 
 modalCancel.addEventListener("click", () => { modal.style.display = "none"; });
-modalInput.addEventListener("keydown", (e) => { if (e.key === "Enter") modalOk.click(); });
+modalInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") modalOk.click();
+  if (e.key === "Escape") { modal.style.display = "none"; }
+});
+// Close modal when clicking overlay background
+modal.addEventListener("click", (e) => {
+  if (e.target === modal) modal.style.display = "none";
+});
 
 // ══════════════════════════════════════════════════════════════════
 //  SEARCH
