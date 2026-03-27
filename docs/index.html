@@ -142,6 +142,17 @@
     @keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
     .note,.folder{animation:fi .2s ease-out}
     .hidden{display:none!important}
+
+    /* Loading bar */
+    .loading-bar{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,#D97757,#E8B931);width:0;z-index:9999;transition:width .3s}
+    .loading-bar.active{width:70%}
+    .loading-bar.done{width:100%;transition:width .1s}
+
+    /* Toast notifications */
+    .toast{position:fixed;bottom:24px;right:24px;background:#3D3530;color:#F5EDE4;padding:12px 20px;border-radius:10px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.2);z-index:9999;transition:opacity .3s,transform .3s;opacity:1;transform:translateY(0)}
+    .toast.hidden{opacity:0;transform:translateY(10px);pointer-events:none}
+    .toast.error{border-left:4px solid #ef4444}
+    .toast.success{border-left:4px solid #22c55e}
   </style>
 </head>
 <body>
@@ -180,6 +191,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <div id="loadingBar" class="loading-bar"></div>
+  <div id="toast" class="toast hidden"></div>
   <script src="app.js"></script>
 </body>
 </html>
