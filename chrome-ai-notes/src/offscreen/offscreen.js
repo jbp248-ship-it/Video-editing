@@ -101,30 +101,19 @@ async function startCapture(mode, streamId) {
 
   resetChunker();
 
-  // 1. Get audio stream based on mode
+  // Tab audio capture only (mic recording is handled by the desktop app)
   try {
-    if (mode === "tab" && streamId) {
-      // Tab audio capture
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          mandatory: {
-            chromeMediaSource: "tab",
-            chromeMediaSourceId: streamId,
-          },
+    if (!streamId) throw new Error("No stream ID — tab capture requires a streamId");
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        mandatory: {
+          chromeMediaSource: "tab",
+          chromeMediaSourceId: streamId,
         },
-      });
-    } else {
-      // Microphone capture (default for in-person lectures)
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-    }
+      },
+    });
   } catch (err) {
-    throw new Error(`Failed to get audio: ${err.message}. Make sure your microphone is connected and allowed.`);
+    throw new Error(`Tab capture failed: ${err.message}`);
   }
 
   // 2. Detect stream death

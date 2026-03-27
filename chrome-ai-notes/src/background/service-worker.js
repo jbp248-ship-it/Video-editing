@@ -244,7 +244,7 @@ async function handleStartRecording() {
     // Forward to desktop app if connected
     sendToDesktop({
       type: "start-session",
-      title: tab?.title || "Microphone Recording",
+      title: tab?.title || "Tab Recording",
       course: "Browser Recordings",
     });
     console.log(`[SW] Recording started — note ${currentNoteId}, tab ${tab?.id || "none"}`);
