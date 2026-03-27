@@ -112,10 +112,13 @@ export async function transcribe(audio) {
     return { text: "", chunks: [] };
   }
 
-  // Skip silence
-  if (isSilent(audio)) {
+  // Skip silence — use a very low threshold so we don't accidentally
+  // filter out quiet speech from a microphone across the room
+  if (isSilent(audio, 0.0001)) {
     return { text: "", chunks: [] };
   }
+
+  console.log(`[Whisper] Transcribing ${audio.length} samples (${(audio.length / 16000).toFixed(1)}s)...`);
 
   const result = await whisperPipeline(audio, {
     language: "en",

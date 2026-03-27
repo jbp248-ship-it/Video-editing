@@ -6,8 +6,10 @@
 // ── Audio pipeline ──
 export const TARGET_SAMPLE_RATE = 16000;
 export const BATCH_SIZE = 512;
-export const CHUNK_DURATION_SEC = 1;
-export const ONE_SECOND_FRAMES = TARGET_SAMPLE_RATE * CHUNK_DURATION_SEC;
+// Whisper needs at least 3-5 seconds of audio to produce useful output.
+// 1 second was too short — the model returned empty text for short chunks.
+export const CHUNK_DURATION_SEC = 5;
+export const CHUNK_FRAMES = TARGET_SAMPLE_RATE * CHUNK_DURATION_SEC; // 80,000 frames
 
 // ── Inference queue ──
 export const MAX_QUEUE_DEPTH = 120; // ~2 minutes of backlog before backpressure

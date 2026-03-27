@@ -340,10 +340,11 @@ let totalChunksProcessed = 0;
 function handleAudioChunk(audioData, chunkIndex) {
   lastAudioChunkTime = Date.now();
 
-  // audioData is a Float32Array via structured clone (no Array.from conversion)
   const audio = audioData instanceof Float32Array
     ? audioData
-    : new Float32Array(audioData); // fallback for safety
+    : new Float32Array(audioData);
+
+  console.log(`[SW] Audio chunk #${chunkIndex}: ${audio.length} samples (${(audio.length / 16000).toFixed(1)}s), queue: ${inferenceQueue.length}`);
 
   const offsetSec = chunkIndex;
 

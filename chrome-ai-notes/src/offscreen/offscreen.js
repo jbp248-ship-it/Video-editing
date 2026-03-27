@@ -7,7 +7,8 @@
  */
 
 const TARGET_SR = 16000;
-const ONE_SECOND_FRAMES = TARGET_SR;
+// 5 seconds of audio per chunk — Whisper needs this much to produce useful output
+const CHUNK_FRAMES = TARGET_SR * 5;
 
 // ── State ──
 let audioContext = null;
@@ -19,12 +20,12 @@ let flushing = false;
 let flushGeneration = 0;
 
 // ── 1-Second Chunker ──
-let chunkBuffer = new Float32Array(ONE_SECOND_FRAMES);
+let chunkBuffer = new Float32Array(CHUNK_FRAMES);
 let chunkWriteIdx = 0;
 let chunkIndex = 0;
 
 function resetChunker() {
-  chunkBuffer = new Float32Array(ONE_SECOND_FRAMES);
+  chunkBuffer = new Float32Array(CHUNK_FRAMES);
   chunkWriteIdx = 0;
   chunkIndex = 0;
 }
@@ -36,13 +37,13 @@ function onWorkletSamples(samples) {
   const srcLen = samples.length;
 
   while (srcOffset < srcLen) {
-    const remaining = ONE_SECOND_FRAMES - chunkWriteIdx;
+    const remaining = CHUNK_FRAMES - chunkWriteIdx;
     const toCopy = Math.min(remaining, srcLen - srcOffset);
     chunkBuffer.set(samples.subarray(srcOffset, srcOffset + toCopy), chunkWriteIdx);
     chunkWriteIdx += toCopy;
     srcOffset += toCopy;
 
-    if (chunkWriteIdx === ONE_SECOND_FRAMES) {
+    if (chunkWriteIdx === CHUNK_FRAMES) {
       shipChunk();
     }
   }
@@ -51,7 +52,7 @@ function onWorkletSamples(samples) {
 function shipChunk() {
   safeSend({
     type: "audio-chunk",
-    audio: chunkBuffer.slice(0, ONE_SECOND_FRAMES),
+    audio: chunkBuffer.slice(0, CHUNK_FRAMES),
     chunkIndex: chunkIndex++,
   });
   chunkWriteIdx = 0;
@@ -178,7 +179,7 @@ async function startCapture(mode, streamId) {
   sourceNode.connect(workletNode);
   capturing = true;
 
-  console.log(`[Offscreen] Capture started (${mode}). Hardware SR: ${hardwareSR} Hz`);
+  console.log(`[Offscreen] Capture started (${mode}). Hardware SR: ${hardwareSR} Hz, chunk size: ${CHUNK_FRAMES} samples (${CHUNK_FRAMES / TARGET_SR}s)`);
 }
 
 function initiateStop(reason) {
