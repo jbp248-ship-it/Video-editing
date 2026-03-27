@@ -92,8 +92,21 @@ export default function App() {
     return () => chrome.runtime.onMessage.removeListener(handler);
   }, [view]);
 
-  const startRecording = useCallback(() => {
+  const startRecording = useCallback(async () => {
     setError(null);
+
+    // Request microphone permission from the side panel (visible page).
+    // Offscreen documents are invisible so Chrome auto-dismisses mic prompts there.
+    // We get the stream here to trigger the permission dialog, then immediately
+    // stop it — the offscreen doc will create its own stream.
+    try {
+      const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      testStream.getTracks().forEach((t) => t.stop());
+    } catch (err) {
+      setError("Microphone access denied. Click the lock icon in the address bar → Site settings → Microphone → Allow");
+      return;
+    }
+
     chrome.runtime.sendMessage({ type: "start-recording" }, (res) => {
       if (res && !res.ok) {
         setError(res.error || "Failed to start recording");
