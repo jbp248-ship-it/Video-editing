@@ -458,9 +458,10 @@ async function startRecording() {
 
   recordingStartTime = Date.now();
   let consecutiveErrors = 0;
+  let lastErrorTime = 0;
 
   recognition.onresult = (event) => {
-    consecutiveErrors = 0; // Reset error count on success
+    consecutiveErrors = 0;
     const elapsed = (Date.now() - recordingStartTime) / 1000;
 
     for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -487,7 +488,6 @@ async function startRecording() {
 
   recognition.onerror = (event) => {
     console.error("Speech error:", event.error);
-    consecutiveErrors++;
 
     if (event.error === "not-allowed") {
       alert("Microphone access denied.");
@@ -495,26 +495,43 @@ async function startRecording() {
       return;
     }
 
+    // Only count errors that happen rapidly (within 2 seconds of each other)
+    const now = Date.now();
+    if (now - lastErrorTime < 2000) {
+      consecutiveErrors++;
+    } else {
+      consecutiveErrors = 1; // Reset if errors are spaced out
+    }
+    lastErrorTime = now;
+
     if (event.error === "network") {
-      interimText = "(Network error — waiting for connection...)";
+      interimText = "(Reconnecting...)";
       renderLiveTranscript();
     }
 
-    // Stop after 5 consecutive errors to avoid infinite restart loop
-    if (consecutiveErrors >= 5) {
-      interimText = "(Transcription stopped — too many errors)";
+    // Only give up after 20 rapid consecutive errors
+    if (consecutiveErrors >= 20) {
+      interimText = "(Transcription stopped — check your internet connection)";
       renderLiveTranscript();
     }
   };
 
   recognition.onend = () => {
-    if (recording && consecutiveErrors < 5) {
-      // Restart after natural timeout (Chrome stops after ~60s silence)
+    if (recording && consecutiveErrors < 20) {
+      // Restart after natural timeout — Chrome stops after ~60s silence
+      // or after any error. This is normal behavior.
+      const delay = consecutiveErrors > 3 ? 1000 : 200;
       setTimeout(() => {
         if (recording) {
-          try { recognition.start(); } catch {}
+          try {
+            recognition.start();
+            if (consecutiveErrors > 0) {
+              interimText = "Listening...";
+              renderLiveTranscript();
+            }
+          } catch {}
         }
-      }, 200);
+      }, delay);
     }
   };
 
