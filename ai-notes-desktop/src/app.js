@@ -301,7 +301,10 @@ function renderNotesList() {
 
     html += `
       <div class="note-card" data-id="${escapeHtml(note.id)}">
-        <h3>${escapeHtml(note.title)}${source}</h3>
+        <div class="note-card-top">
+          <h3>${escapeHtml(note.title)}${source}</h3>
+          <button class="delete-btn" data-id="${escapeHtml(note.id)}" title="Delete">&#10005;</button>
+        </div>
         <div class="meta">
           <span>${escapeHtml(date)}</span>
           <span>${duration}</span>
@@ -314,10 +317,27 @@ function renderNotesList() {
 
   contentEl.innerHTML = html;
 
+  // Open note on card click
   contentEl.querySelectorAll(".note-card").forEach((el) => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", (e) => {
+      if (e.target.classList.contains("delete-btn")) return;
       activeNote = data.notes.find((n) => n.id === el.dataset.id);
       renderContent();
+    });
+  });
+
+  // Delete buttons on each card
+  contentEl.querySelectorAll(".delete-btn").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = el.dataset.id;
+      const note = data.notes.find((n) => n.id === id);
+      if (note && confirm(`Delete "${note.title}"?`)) {
+        data.notes = data.notes.filter((n) => n.id !== id);
+        saveData(data);
+        renderCourses();
+        renderContent();
+      }
     });
   });
 }
@@ -495,44 +515,47 @@ async function startRecording() {
       return;
     }
 
-    // Only count errors that happen rapidly (within 2 seconds of each other)
+    // These are NORMAL — Chrome fires them constantly. Don't count them.
+    if (event.error === "no-speech" || event.error === "aborted") {
+      return; // Recognition will auto-restart via onend
+    }
+
+    // Only count real errors (network) that happen rapidly
     const now = Date.now();
     if (now - lastErrorTime < 2000) {
       consecutiveErrors++;
     } else {
-      consecutiveErrors = 1; // Reset if errors are spaced out
+      consecutiveErrors = 1;
     }
     lastErrorTime = now;
 
-    if (event.error === "network") {
+    if (event.error === "network" && consecutiveErrors <= 3) {
+      // Brief network hiccup — don't show anything, just let it restart
+      return;
+    }
+
+    if (event.error === "network" && consecutiveErrors > 3) {
       interimText = "(Reconnecting...)";
       renderLiveTranscript();
     }
 
-    // Only give up after 20 rapid consecutive errors
-    if (consecutiveErrors >= 20) {
-      interimText = "(Transcription stopped — check your internet connection)";
+    // Only give up after 30 rapid consecutive REAL errors
+    if (consecutiveErrors >= 30) {
+      interimText = "(Transcription paused — check your internet connection. Still recording audio level.)";
       renderLiveTranscript();
     }
   };
 
   recognition.onend = () => {
-    if (recording && consecutiveErrors < 20) {
-      // Restart after natural timeout — Chrome stops after ~60s silence
-      // or after any error. This is normal behavior.
-      const delay = consecutiveErrors > 3 ? 1000 : 200;
-      setTimeout(() => {
-        if (recording) {
-          try {
-            recognition.start();
-            if (consecutiveErrors > 0) {
-              interimText = "Listening...";
-              renderLiveTranscript();
-            }
-          } catch {}
-        }
-      }, delay);
-    }
+    if (!recording) return;
+    // ALWAYS restart — onend fires constantly in Chrome (after every
+    // utterance, silence timeout, or error). This is normal.
+    const delay = consecutiveErrors > 5 ? 2000 : 100;
+    setTimeout(() => {
+      if (recording) {
+        try { recognition.start(); } catch {}
+      }
+    }, delay);
   };
 
   recognition.start();
