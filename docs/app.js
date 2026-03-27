@@ -20,12 +20,12 @@ const $ = id => document.getElementById(id);
 // ══════════════════════════════════════════════════════════════════
 
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyD1R5MmU5-udAsfyOUzTZj-GG2lRH5kYfs",
+  authDomain: "justins-notes.firebaseapp.com",
+  projectId: "justins-notes",
+  storageBucket: "justins-notes.firebasestorage.app",
+  messagingSenderId: "252271897988",
+  appId: "1:252271897988:web:6bf27e48f23c0f0e57c1d1"
 };
 
 firebase.initializeApp(firebaseConfig);
