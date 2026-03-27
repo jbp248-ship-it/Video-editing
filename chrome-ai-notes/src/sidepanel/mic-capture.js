@@ -9,7 +9,7 @@
  */
 
 const TARGET_SR = 16000;
-const CHUNK_DURATION = 5; // seconds
+const CHUNK_DURATION = 2; // seconds — lower = faster response, but noisier transcription
 const CHUNK_FRAMES = TARGET_SR * CHUNK_DURATION;
 
 let audioContext = null;
@@ -17,6 +17,8 @@ let mediaStream = null;
 let sourceNode = null;
 let workletNode = null;
 let active = false;
+let analyserNode = null;
+let levelCallback = null; // called with audio level 0-1 for UI visualization
 
 // Chunker state
 let chunkBuffer = new Float32Array(CHUNK_FRAMES);
@@ -112,6 +114,13 @@ export async function startMicCapture() {
   };
 
   sourceNode.connect(workletNode);
+
+  // Audio level analyser for UI feedback (shows the mic is hearing you)
+  analyserNode = audioContext.createAnalyser();
+  analyserNode.fftSize = 256;
+  sourceNode.connect(analyserNode);
+  startLevelMonitor();
+
   active = true;
 
   console.log(`[MicCapture] Started. Hardware SR: ${hardwareSR} Hz, chunk: ${CHUNK_DURATION}s`);
@@ -145,4 +154,30 @@ export function stopMicCapture() {
 
 export function isMicActive() {
   return active;
+}
+
+/**
+ * Set a callback that receives the current audio level (0-1) ~15 times/sec.
+ * Use this to show a visual indicator that the mic is hearing audio.
+ */
+export function onAudioLevel(cb) {
+  levelCallback = cb;
+}
+
+let levelAnimFrame = null;
+function startLevelMonitor() {
+  if (!analyserNode) return;
+  const data = new Uint8Array(analyserNode.frequencyBinCount);
+
+  function tick() {
+    if (!active) return;
+    analyserNode.getByteFrequencyData(data);
+    // Average of frequency bins, normalized to 0-1
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i];
+    const level = sum / (data.length * 255);
+    levelCallback?.(level);
+    levelAnimFrame = requestAnimationFrame(tick);
+  }
+  tick();
 }

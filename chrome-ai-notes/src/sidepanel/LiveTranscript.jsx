@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
 import { formatTimestamp } from "../utils/constants.js";
+import { onAudioLevel } from "./mic-capture.js";
 
 /**
- * Live transcript view with timestamps, elapsed timer, and queue depth indicator.
+ * Live transcript with audio level indicator and processing status.
  */
 export default function LiveTranscript({ noteId, isRecording, onStop, onBack }) {
   const [lines, setLines] = useState([]);
   const [elapsed, setElapsed] = useState(0);
   const [queueDepth, setQueueDepth] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [processing, setProcessing] = useState(false);
   const bottomRef = useRef(null);
   const startTimeRef = useRef(Date.now());
 
@@ -21,6 +24,13 @@ export default function LiveTranscript({ noteId, isRecording, onStop, onBack }) 
     return () => clearInterval(timer);
   }, [isRecording]);
 
+  // Audio level monitor
+  useEffect(() => {
+    if (!isRecording) return;
+    onAudioLevel((level) => setAudioLevel(level));
+    return () => onAudioLevel(null);
+  }, [isRecording]);
+
   // Listen for transcript chunks
   useEffect(() => {
     const handler = (msg) => {
@@ -29,7 +39,12 @@ export default function LiveTranscript({ noteId, isRecording, onStop, onBack }) 
           text: msg.text,
           offsetSec: msg.offsetSec || 0,
         }]);
+        setProcessing(false);
         if (msg.queueDepth != null) setQueueDepth(msg.queueDepth);
+      }
+      // Show "processing" when audio is being transcribed
+      if (msg.type === "audio-chunk") {
+        setProcessing(true);
       }
     };
     chrome.runtime.onMessage.addListener(handler);
@@ -49,8 +64,8 @@ export default function LiveTranscript({ noteId, isRecording, onStop, onBack }) 
           <span className="dot" />
           {isRecording ? formatTimestamp(elapsed) : "Stopped"}
         </div>
-        {queueDepth > 5 && (
-          <span className="queue-badge" title="Inference queue depth">
+        {queueDepth > 2 && (
+          <span className="queue-badge" title="Chunks being processed">
             Q:{queueDepth}
           </span>
         )}
@@ -59,9 +74,25 @@ export default function LiveTranscript({ noteId, isRecording, onStop, onBack }) 
         )}
       </div>
 
+      {/* Audio level bar — shows the mic is hearing you */}
+      {isRecording && (
+        <div className="audio-level-container">
+          <div
+            className="audio-level-bar"
+            style={{ width: `${Math.min(100, audioLevel * 300)}%` }}
+          />
+          <span className="audio-level-label">
+            {audioLevel > 0.01 ? "Hearing audio..." : "Waiting for sound..."}
+          </span>
+        </div>
+      )}
+
       <div className="transcript-feed">
-        {lines.length === 0 && isRecording && (
-          <p className="placeholder">Listening... transcript will appear here.</p>
+        {lines.length === 0 && isRecording && !processing && (
+          <p className="placeholder">Start talking — transcript will appear here.</p>
+        )}
+        {lines.length === 0 && isRecording && processing && (
+          <p className="placeholder processing">Processing audio...</p>
         )}
         {lines.length === 0 && !isRecording && (
           <p className="placeholder">No transcript was captured.</p>
@@ -72,6 +103,9 @@ export default function LiveTranscript({ noteId, isRecording, onStop, onBack }) 
             {line.text}
           </p>
         ))}
+        {processing && lines.length > 0 && (
+          <p className="processing-indicator">Transcribing...</p>
+        )}
         <div ref={bottomRef} />
       </div>
     </div>
