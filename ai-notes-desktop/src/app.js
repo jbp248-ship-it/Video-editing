@@ -388,7 +388,7 @@ function renderLiveTranscript() {
   }
 
   if (!html) {
-    html = `<div class="transcript-line interim">${online ? "Listening... start speaking." : "Offline — transcription unavailable. Recording audio only."}</div>`;
+    html = `<div class="transcript-line interim">Listening... speak into your microphone.</div>`;
   }
 
   contentEl.innerHTML = html;
@@ -417,6 +417,7 @@ if (window.electronAPI) {
       updateModelStatus();
     }
     if (msg.type === "result") {
+      console.log("[App] Whisper result:", msg.text ? msg.text.slice(0, 50) : "(empty)", msg.error || "");
       onTranscriptionResult(msg);
     }
   });
@@ -539,6 +540,7 @@ async function startRecording() {
       interimText = "Transcribing...";
       renderLiveTranscript();
 
+      console.log(`[App] Sending ${CHUNK_FRAMES} samples to Whisper worker (chunk #${id})`);
       window.electronAPI?.whisperTranscribe({
         type: "transcribe",
         id,
