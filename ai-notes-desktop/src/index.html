@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AI Note Taker</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      height: 100vh;
+      display: flex;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 260px;
+      background: #1e293b;
+      border-right: 1px solid #334155;
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-header {
+      padding: 20px 16px 12px;
+      border-bottom: 1px solid #334155;
+    }
+
+    .sidebar-header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+
+    .sidebar-header p {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 4px;
+    }
+
+    .course-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .course-item {
+      padding: 10px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #94a3b8;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2px;
+    }
+
+    .course-item:hover { background: #334155; color: #e2e8f0; }
+    .course-item.active { background: #3b82f6; color: #fff; }
+
+    .course-count {
+      font-size: 11px;
+      background: rgba(255,255,255,0.15);
+      padding: 1px 6px;
+      border-radius: 8px;
+    }
+
+    .add-course-btn {
+      margin: 8px;
+      padding: 8px;
+      background: #334155;
+      border: 1px dashed #475569;
+      border-radius: 6px;
+      color: #94a3b8;
+      font-size: 12px;
+      cursor: pointer;
+      text-align: center;
+    }
+
+    .add-course-btn:hover { background: #3b4f6b; color: #e2e8f0; }
+
+    /* ── Main area ── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .toolbar {
+      padding: 16px 24px;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #1e293b;
+    }
+
+    .record-btn {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .record-btn.start { background: #ef4444; color: #fff; }
+    .record-btn.start:hover { background: #dc2626; }
+    .record-btn.stop { background: #f59e0b; color: #000; }
+
+    .timer {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 16px;
+      color: #ef4444;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .audio-meter {
+      flex: 1;
+      height: 8px;
+      background: #334155;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .audio-meter-fill {
+      height: 100%;
+      background: #22c55e;
+      border-radius: 4px;
+      transition: width 0.1s;
+      width: 0%;
+    }
+
+    /* ── Content area ── */
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: #64748b;
+    }
+
+    .empty-state h2 { font-size: 20px; color: #94a3b8; margin-bottom: 8px; }
+
+    /* ── Live transcript ── */
+    .transcript-line {
+      padding: 6px 0;
+      font-size: 15px;
+      line-height: 1.6;
+      color: #e2e8f0;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    .transcript-line .ts {
+      font-family: monospace;
+      font-size: 11px;
+      color: #6366f1;
+      background: #1e1b4b;
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-right: 8px;
+    }
+
+    .interim {
+      color: #64748b;
+      font-style: italic;
+    }
+
+    /* ── Notes list ── */
+    .note-card {
+      padding: 14px 16px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+
+    .note-card:hover { border-color: #3b82f6; }
+
+    .note-card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin-bottom: 4px;
+    }
+
+    .note-card .meta {
+      font-size: 12px;
+      color: #64748b;
+      display: flex;
+      gap: 12px;
+    }
+
+    .note-card .preview {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    /* ── Note detail ── */
+    .note-detail-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .note-detail-header h2 { font-size: 20px; }
+
+    .btn-group { display: flex; gap: 8px; }
+
+    .btn {
+      padding: 6px 14px;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      background: #334155;
+      color: #e2e8f0;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .btn:hover { background: #475569; }
+    .btn.danger { border-color: #ef4444; color: #ef4444; }
+    .btn.danger:hover { background: #ef4444; color: #fff; }
+
+    .full-transcript {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 16px;
+      line-height: 1.7;
+      font-size: 14px;
+      white-space: pre-wrap;
+      max-height: 60vh;
+      overflow-y: auto;
+    }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+
+    .modal {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 24px;
+      width: 360px;
+    }
+
+    .modal h3 { margin-bottom: 12px; font-size: 16px; }
+
+    .modal input {
+      width: 100%;
+      padding: 8px 12px;
+      background: #0f172a;
+      border: 1px solid #475569;
+      border-radius: 6px;
+      color: #e2e8f0;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>AI Note Taker</h1>
+      <p>Record lectures, transcribe instantly</p>
+    </div>
+    <div class="course-list" id="courseList"></div>
+    <div class="add-course-btn" id="addCourseBtn">+ Add Course</div>
+  </div>
+
+  <div class="main">
+    <div class="toolbar">
+      <button class="record-btn start" id="recordBtn">Start Recording</button>
+      <span class="timer" id="timer" style="display:none">00:00:00</span>
+      <div class="audio-meter" id="meterContainer" style="display:none">
+        <div class="audio-meter-fill" id="meterFill"></div>
+      </div>
+    </div>
+
+    <div class="content" id="content">
+      <div class="empty-state">
+        <h2>Welcome to AI Note Taker</h2>
+        <p>Add a course in the sidebar, then click "Start Recording" to begin transcribing a lecture.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Course Modal -->
+  <div class="modal-overlay" id="modal" style="display:none">
+    <div class="modal">
+      <h3 id="modalTitle">Add Course</h3>
+      <input type="text" id="modalInput" placeholder="e.g. CS101 — Intro to Computer Science" />
+      <div class="modal-actions">
+        <button class="btn" id="modalCancel">Cancel</button>
+        <button class="btn" id="modalOk" style="background:#3b82f6;border-color:#3b82f6;color:#fff">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

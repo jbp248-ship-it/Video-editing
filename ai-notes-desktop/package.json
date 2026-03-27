@@ -1,0 +1,32 @@
+{
+  "name": "ai-note-taker",
+  "version": "1.0.0",
+  "description": "AI Note Taker — record lectures, transcribe in real-time, organize by class",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --mac",
+    "build-win": "electron-builder --win"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.ainotes.app",
+    "productName": "AI Note Taker",
+    "win": {
+      "target": "portable"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ]
+  }
+}
