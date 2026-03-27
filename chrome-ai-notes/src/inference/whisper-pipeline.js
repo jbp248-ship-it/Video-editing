@@ -120,9 +120,9 @@ export async function transcribe(audio) {
 
   console.log(`[Whisper] Transcribing ${audio.length} samples (${(audio.length / 16000).toFixed(1)}s)...`);
 
+  // whisper-tiny.en is English-only — do NOT pass language or task
+  // (@huggingface/transformers v3 throws if you do)
   const result = await whisperPipeline(audio, {
-    language: "en",
-    task: "transcribe",
     return_timestamps: true,
     chunk_length_s: 30,
     stride_length_s: 5,
