@@ -35,7 +35,9 @@ const CreateEventSchema = z.object({
   venue: z.string().min(1),
   city: z.string().optional(),
   state: z.string().optional(),
-  eventDate: z.string().transform((s) => new Date(s)),
+  eventDate: z.string().refine((s) => !isNaN(Date.parse(s)), {
+    message: "Invalid date format",
+  }).transform((s) => new Date(s)),
   category: z.string().optional(),
   notes: z.string().optional(),
 });

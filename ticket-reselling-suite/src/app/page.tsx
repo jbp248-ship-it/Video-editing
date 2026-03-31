@@ -16,13 +16,21 @@ export default function DashboardPage() {
   const [snapshots, setSnapshots] = useState([]);
   const [alertCount, setAlertCount] = useState(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saleModal, setSaleModal] = useState<string | null>(null);
+  const [saleForm, setSaleForm] = useState({
+    price: "",
+    qty: "1",
+    platform: "STUBHUB",
+  });
 
   const fetchData = useCallback(async () => {
     try {
-      const [dashRes, invRes, alertRes] = await Promise.all([
+      const [dashRes, invRes, alertRes, snapRes] = await Promise.all([
         fetch("/api/dashboard"),
         fetch("/api/inventory"),
         fetch("/api/alerts"),
+        fetch("/api/snapshots?days=30").catch(() => null),
       ]);
 
       if (dashRes.ok) {
@@ -32,11 +40,14 @@ export default function DashboardPage() {
       }
       if (invRes.ok) setInventory(await invRes.json());
       if (alertRes.ok) setAlerts(await alertRes.json());
+      if (snapRes?.ok) setSnapshots(await snapRes.json());
       setFetchError(null);
     } catch (err) {
       setFetchError(
         err instanceof Error ? err.message : "Failed to connect to API"
       );
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -46,35 +57,25 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const handleRecordSale = async (inventoryId: string) => {
-    const priceStr = prompt("Sale price per ticket ($):");
-    if (!priceStr) return;
-    const salePrice = parseFloat(priceStr);
-    if (isNaN(salePrice) || salePrice <= 0) {
-      alert("Invalid price. Please enter a positive number.");
-      return;
-    }
+  const handleRecordSale = (inventoryId: string) => {
+    setSaleModal(inventoryId);
+    setSaleForm({ price: "", qty: "1", platform: "STUBHUB" });
+  };
 
-    const qtyStr = prompt("Quantity sold:", "1");
-    const quantitySold = parseInt(qtyStr ?? "1", 10);
-    if (isNaN(quantitySold) || quantitySold < 1) {
-      alert("Invalid quantity.");
-      return;
-    }
-
-    const platform = prompt(
-      "Platform (STUBHUB, TICKETMASTER, VIVID_SEATS, SEATGEEK):",
-      "STUBHUB"
-    );
-    if (!platform) return;
+  const submitSale = async () => {
+    if (!saleModal) return;
+    const salePrice = parseFloat(saleForm.price);
+    const quantitySold = parseInt(saleForm.qty, 10);
+    if (isNaN(salePrice) || salePrice <= 0) return;
+    if (isNaN(quantitySold) || quantitySold < 1) return;
 
     try {
       const res = await fetch("/api/sales", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          inventoryId,
-          platform: platform.toUpperCase(),
+          inventoryId: saleModal,
+          platform: saleForm.platform,
           salePrice,
           quantitySold,
           source: "MANUAL",
@@ -82,13 +83,18 @@ export default function DashboardPage() {
       });
 
       if (res.ok) {
-        fetchData(); // Refresh dashboard
+        setSaleModal(null);
+        fetchData();
       } else {
-        const data = await res.json();
-        alert(data.error ?? "Failed to record sale.");
+        try {
+          const data = await res.json();
+          setFetchError(data.error ?? `Sale failed (${res.status})`);
+        } catch {
+          setFetchError(`Sale failed (${res.status})`);
+        }
       }
     } catch {
-      alert("Failed to record sale. Check that the app is running.");
+      setFetchError("Failed to record sale. Check that the app is running.");
     }
   };
 
@@ -278,6 +284,75 @@ export default function DashboardPage() {
           )}
         </div>
       </main>
+
+      {/* ─── Record Sale Modal ──────────────────────────── */}
+      {saleModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="card w-96 space-y-4">
+            <h2 className="text-lg font-semibold">Record Sale</h2>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400">Platform</label>
+                <select
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 mt-1"
+                  value={saleForm.platform}
+                  onChange={(e) =>
+                    setSaleForm({ ...saleForm, platform: e.target.value })
+                  }
+                >
+                  {["STUBHUB", "TICKETMASTER", "VIVID_SEATS", "SEATGEEK", "ETIX"].map(
+                    (p) => (
+                      <option key={p} value={p}>
+                        {p.replace(/_/g, " ")}
+                      </option>
+                    )
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400">
+                  Sale Price (per ticket)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 mt-1"
+                  placeholder="$0.00"
+                  value={saleForm.price}
+                  onChange={(e) =>
+                    setSaleForm({ ...saleForm, price: e.target.value })
+                  }
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400">Quantity Sold</label>
+                <input
+                  type="number"
+                  min="1"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 mt-1"
+                  value={saleForm.qty}
+                  onChange={(e) =>
+                    setSaleForm({ ...saleForm, qty: e.target.value })
+                  }
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end pt-2">
+              <button
+                className="btn-ghost"
+                onClick={() => setSaleModal(null)}
+              >
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={submitSale}>
+                Record Sale
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

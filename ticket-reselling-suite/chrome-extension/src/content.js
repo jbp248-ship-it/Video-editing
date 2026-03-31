@@ -184,29 +184,45 @@
       getListings() {
         const listings = [];
 
-        // Etix uses table rows and various price display patterns
-        const priceElements = document.querySelectorAll(
-          '[class*="price"], [class*="Price"], .ticket-price, ' +
-          '.seat-price, td[class*="price"], .amount, ' +
-          '[data-price], .cost, .ticket-cost'
+        // Etix renders tickets in table rows or card-style layouts.
+        // Target price elements that are children of ticket/seat containers only.
+        const containers = document.querySelectorAll(
+          '.ticket-row, .seat-row, [class*="ticket-item"], ' +
+          '[class*="seat-listing"], [class*="price-level"], ' +
+          'tr[class*="ticket"], tr[class*="seat"], ' +
+          '.ticket-group, .price-row'
         );
 
-        priceElements.forEach((el) => {
-          const price = parsePrice(el.textContent?.trim() ?? "");
+        containers.forEach((container) => {
+          // Find price within this specific ticket container
+          const priceEl = container.querySelector(
+            '[class*="ticket-price"], [class*="seat-price"], ' +
+            '[class*="price-value"], .price, [data-price]'
+          );
+          if (!priceEl) return;
+          const price = parsePrice(priceEl.textContent?.trim() ?? "");
           if (price === null) return;
 
-          const container = el.closest(
-            'tr, [class*="ticket"], [class*="listing"], ' +
-            '[class*="row"], [class*="seat"], .item'
-          );
           const section =
-            container?.querySelector(
-              '[class*="section"], [class*="Section"], ' +
-              '[class*="area"], [class*="level"]'
+            container.querySelector(
+              '[class*="section"], [class*="area"], [class*="level"]'
             )?.textContent?.trim() ?? null;
 
           listings.push({ price, section });
         });
+
+        // Fallback: if no containers found, try direct price elements
+        // but only from the main content area
+        if (listings.length === 0) {
+          const main = document.querySelector("main, #content, .main-content, [role='main']") ?? document.body;
+          const priceEls = main.querySelectorAll(
+            '.ticket-price, .seat-price, [class*="ticket-price"], [class*="seat-price"]'
+          );
+          priceEls.forEach((el) => {
+            const price = parsePrice(el.textContent?.trim() ?? "");
+            if (price !== null) listings.push({ price, section: null });
+          });
+        }
 
         return listings;
       },
@@ -214,9 +230,8 @@
       getEventName() {
         return (
           document.querySelector(
-            'h1, .event-title, .event-name, ' +
-            '[class*="event-title"], [class*="eventTitle"], ' +
-            '.show-title, .performance-title'
+            'h1.event-title, h1.event-name, h1[class*="event-title"], ' +
+            'h1[class*="eventTitle"], .show-title, .performance-title'
           )?.textContent?.trim() ?? document.title
         );
       },

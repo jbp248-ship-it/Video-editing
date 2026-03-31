@@ -132,7 +132,8 @@ async function processRetryQueue() {
         body: JSON.stringify(item.snapshot),
       });
       if (!response.ok) remaining.push(item);
-    } catch {
+    } catch (err) {
+      console.warn("[TicketOps] Retry failed:", err);
       remaining.push(item);
     }
   }
@@ -141,11 +142,15 @@ async function processRetryQueue() {
 }
 
 // Retry every 5 minutes (guard for managed Chrome profiles that block alarms)
-if (chrome.alarms) {
-  chrome.alarms.create("retry-queue", { periodInMinutes: 5 });
-  chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === "retry-queue") processRetryQueue();
-  });
+try {
+  if (chrome.alarms) {
+    chrome.alarms.create("retry-queue", { periodInMinutes: 5 });
+    chrome.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name === "retry-queue") processRetryQueue();
+    });
+  }
+} catch (err) {
+  console.warn("[TicketOps] Could not set up retry alarm:", err);
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────

@@ -80,7 +80,9 @@ export function InventoryTable({ items, onRecordSale }: InventoryTableProps) {
         <tbody>
           {items.map((item) => {
             const costPerTicket =
-              parseFloat(String(item.purchasePrice)) / item.quantity;
+              item.quantity > 0
+                ? parseFloat(String(item.purchasePrice)) / item.quantity
+                : 0;
             const listNum = item.listPrice
               ? parseFloat(String(item.listPrice))
               : null;

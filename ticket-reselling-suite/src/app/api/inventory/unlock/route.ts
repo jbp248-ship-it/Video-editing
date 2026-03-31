@@ -29,7 +29,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  await cancelLock(parsed.data.inventoryId);
+  try {
+    await cancelLock(parsed.data.inventoryId);
+  } catch (err: unknown) {
+    const prismaErr = err as { code?: string };
+    if (prismaErr.code === "P2025") {
+      return NextResponse.json(
+        { error: "Inventory item not found" },
+        { status: 404 }
+      );
+    }
+    throw err;
+  }
 
   return NextResponse.json({ status: "unlocked", inventoryId: parsed.data.inventoryId });
 }

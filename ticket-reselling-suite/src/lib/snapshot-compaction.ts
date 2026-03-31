@@ -33,10 +33,13 @@ export async function compactSnapshots() {
   });
 
   // 3. Find hourly snapshots between 7-90 days that need compaction
+  //    Only compact snapshots that have been matched to an event.
+  //    Unmatched snapshots (null eventId) are kept as-is until matched.
   const hourlyToCompact = await prisma.marketSnapshot.findMany({
     where: {
       granularity: "HOURLY",
       capturedAt: { lt: sevenDaysAgo, gte: ninetyDaysAgo },
+      eventId: { not: null },
     },
     orderBy: { capturedAt: "asc" },
   });
@@ -46,7 +49,7 @@ export async function compactSnapshots() {
 
   for (const snap of hourlyToCompact) {
     const dateKey = snap.capturedAt.toISOString().split("T")[0];
-    const key = `${snap.eventId}|${snap.platform}|${snap.section ?? "ALL"}|${dateKey}`;
+    const key = `${snap.eventId!}|${snap.platform}|${snap.section ?? "ALL"}|${dateKey}`;
 
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(snap);

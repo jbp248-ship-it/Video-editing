@@ -25,7 +25,15 @@ export async function POST(req: NextRequest) {
   const authError = verifyWebhookSecret(req);
   if (authError) return authError;
 
-  const body = await req.json();
+  let body;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid JSON in request body" },
+      { status: 400 }
+    );
+  }
 
   // Postmark inbound webhook format
   const from = body.FromFull?.Email ?? body.From ?? "";

@@ -8,12 +8,15 @@ document.addEventListener("DOMContentLoaded", () => {
     ["lastSnapshot", "snapshotCount", "connectionOk", "lastCaptureTime"],
     (data) => {
       // Connection status (informational only — extension works offline)
-      if (data.connectionOk) {
+      if (data.connectionOk === true) {
         statusDot.classList.add("ok");
         statusText.textContent = "Syncing to Dashboard";
-      } else {
+      } else if (data.connectionOk === false) {
         statusDot.classList.add("err");
         statusText.textContent = "Dashboard offline — data saved locally";
+      } else {
+        statusDot.classList.add("err");
+        statusText.textContent = "Not connected yet — browse a marketplace";
       }
 
       const snap = data.lastSnapshot;

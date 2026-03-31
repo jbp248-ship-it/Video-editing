@@ -17,20 +17,13 @@ export async function GET(req: NextRequest) {
   const section = searchParams.get("section");
   const days = parseInt(searchParams.get("days") ?? "7", 10);
 
-  if (!eventId) {
-    return NextResponse.json(
-      { error: "eventId is required" },
-      { status: 400 }
-    );
-  }
-
   const since = new Date();
   since.setDate(since.getDate() - days);
 
   const where: Record<string, unknown> = {
-    eventId,
     capturedAt: { gte: since },
   };
+  if (eventId) where.eventId = eventId;
   if (platform) where.platform = platform;
   if (section) where.section = section;
 
