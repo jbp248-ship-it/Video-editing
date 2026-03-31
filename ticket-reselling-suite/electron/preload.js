@@ -20,4 +20,9 @@ contextBridge.exposeInMainWorld("ticketOps", {
     ipcRenderer.on("browser-loading", handler);
     return () => ipcRenderer.off("browser-loading", handler);
   },
+  onBrowserClosed: (cb) => {
+    const handler = () => cb();
+    ipcRenderer.on("browser-closed", handler);
+    return () => ipcRenderer.off("browser-closed", handler);
+  },
 });

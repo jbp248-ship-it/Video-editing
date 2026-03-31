@@ -1,4 +1,4 @@
-const { app, BrowserWindow, BrowserView, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, BrowserView, ipcMain, shell, globalShortcut } = require("electron");
 const { spawn, execSync } = require("child_process");
 const path = require("path");
 const http = require("http");
@@ -111,8 +111,9 @@ function createWindow() {
 // ─── Embedded Browser (BrowserView) ────────────────────────────────────
 
 const DATA_PANEL_WIDTH = 380;
-// Dashboard header (64px) + browser toolbar (48px) = 112px from window top
-const BROWSER_TOP_OFFSET = 112;
+// Dashboard header (64px) + browser toolbar (56px) = 120px from window top
+// Extra padding ensures toolbar buttons are never covered by BrowserView
+const BROWSER_TOP_OFFSET = 120;
 
 function resizeBrowserView() {
   if (!ticketBrowserView || !mainWindow) return;
@@ -396,13 +397,17 @@ ipcMain.handle("browser-refresh", () => {
   ticketBrowserView?.webContents.reload();
 });
 
-ipcMain.handle("browser-close", () => {
+function closeBrowserView() {
   if (ticketBrowserView && mainWindow) {
     mainWindow.removeBrowserView(ticketBrowserView);
     ticketBrowserView.webContents.destroy();
     ticketBrowserView = null;
+    // Notify renderer that browser was closed
+    mainWindow.webContents.send("browser-closed");
   }
-});
+}
+
+ipcMain.handle("browser-close", () => closeBrowserView());
 
 // Read captured data from window.__ticketOpsData (not document.title)
 ipcMain.handle("browser-get-data", async () => {
@@ -439,6 +444,11 @@ app.whenReady().then(async () => {
   try {
     await waitForServer();
     createWindow();
+
+    // Escape key closes the embedded browser from anywhere
+    globalShortcut.register("Escape", () => {
+      if (ticketBrowserView) closeBrowserView();
+    });
   } catch (err) {
     console.error("Failed to start:", err.message);
     app.quit();

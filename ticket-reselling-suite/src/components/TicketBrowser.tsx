@@ -36,6 +36,7 @@ interface TicketOpsAPI {
   setSidebarWidth: (w: number) => Promise<void>;
   onUrlChanged: (cb: (url: string) => void) => () => void;
   onLoadingChanged: (cb: (loading: boolean) => void) => () => void;
+  onBrowserClosed: (cb: () => void) => () => void;
 }
 
 declare global {
@@ -96,9 +97,15 @@ export function TicketBrowser() {
     const unsubLoading = api.onLoadingChanged((isLoading: boolean) =>
       setLoading(isLoading)
     );
+    const unsubClosed = api.onBrowserClosed(() => {
+      setIsOpen(false);
+      setData(null);
+      setUrl("");
+    });
     return () => {
       unsubUrl();
       unsubLoading();
+      unsubClosed();
     };
   }, [api]);
 
@@ -340,18 +347,21 @@ export function TicketBrowser() {
     <div className="flex flex-col h-[calc(100vh-112px)]">
       {/* Browser Toolbar — always visible above BrowserView */}
       <div
-        className="flex items-center gap-2 px-3 py-2 shrink-0"
+        className="flex items-center gap-2 px-3 py-2.5 shrink-0"
         style={{
           backgroundColor: "#3D3929",
           borderBottom: "1px solid #4A4539",
+          minHeight: "52px",
+          zIndex: 9999,
+          position: "relative",
         }}
       >
-        {/* EXIT — large, always visible */}
+        {/* EXIT — large, always visible, impossible to miss */}
         <button
           onClick={closeBrowser}
-          className="text-white text-sm font-semibold px-4 py-2 rounded-lg transition-all hover:scale-105 active:scale-95"
-          style={{ backgroundColor: "#DC2626" }}
-          title="Close browser and return to dashboard"
+          className="text-white font-bold px-5 py-2.5 rounded-lg transition-all hover:scale-105 active:scale-95 shadow-lg"
+          style={{ backgroundColor: "#DC2626", fontSize: "14px" }}
+          title="Close browser and return to dashboard (or press Escape)"
         >
           ← Exit Browser
         </button>
@@ -405,6 +415,10 @@ export function TicketBrowser() {
             Loading...
           </span>
         )}
+
+        <span className="text-[10px]" style={{ color: "#6B6458" }}>
+          Press Esc to exit
+        </span>
       </div>
 
       {/* Split: BrowserView (left) + Data Panel (right) */}
