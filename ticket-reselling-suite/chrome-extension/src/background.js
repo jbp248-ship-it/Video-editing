@@ -140,11 +140,13 @@ async function processRetryQueue() {
   await chrome.storage.local.set({ [RETRY_QUEUE_KEY]: remaining });
 }
 
-// Retry every 5 minutes
-chrome.alarms.create("retry-queue", { periodInMinutes: 5 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "retry-queue") processRetryQueue();
-});
+// Retry every 5 minutes (guard for managed Chrome profiles that block alarms)
+if (chrome.alarms) {
+  chrome.alarms.create("retry-queue", { periodInMinutes: 5 });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === "retry-queue") processRetryQueue();
+  });
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
