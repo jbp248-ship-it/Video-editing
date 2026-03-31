@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "next lint",
     "electron:dev": "electron .",
-    "electron:build": "next build && electron-builder --win",
+    "generate-icon": "node scripts/generate-icon.js",
+    "electron:build": "node scripts/generate-icon.js && next build && electron-builder --win",
     "postinstall": "prisma generate && npx playwright install chromium",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
@@ -65,7 +66,8 @@
       }
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "public/icon.png"
     },
     "nsis": {
       "oneClick": true,
