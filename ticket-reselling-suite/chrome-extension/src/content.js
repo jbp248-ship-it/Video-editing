@@ -1,33 +1,33 @@
 /**
  * TicketOps Market Intelligence — Content Script
  *
- * PASSIVE SCRAPING STRATEGY:
- * - We NEVER make fetch/XHR requests to the site's API.
- * - We ONLY read DOM elements already rendered on the user's screen.
- * - We use MutationObserver to detect when ticket listings update.
- * - This is virtually invisible to bot detectors (Akamai, PerimeterX)
- *   because it creates zero additional server traffic.
+ * DUAL SCRAPING STRATEGY:
  *
- * RESILIENT SELECTOR STRATEGY:
- * - Ticket sites use obfuscated/dynamic class names that change frequently.
- * - Instead of targeting specific classes, we use a generic approach:
- *   1. Find the main listing container (right panel, list view)
- *   2. Walk the DOM looking for dollar-amount text nodes
- *   3. Extract section/row context from surrounding text
+ * 1. NETWORK INTERCEPTION (primary, most reliable):
+ *    Monkey-patches XMLHttpRequest and fetch to intercept the JSON
+ *    responses that ticket sites' own frontends make. This gives us
+ *    structured data (prices, sections, rows) without parsing HTML.
+ *    Creates ZERO extra server traffic — we only read responses the
+ *    page already requested.
+ *
+ * 2. DOM WALKING (fallback):
+ *    If network interception finds nothing after 10 seconds, falls
+ *    back to walking the DOM for $XX.XX text nodes. Less reliable
+ *    but works on sites that pre-render data without XHR.
  */
 
 (function () {
   "use strict";
 
-  // ─── Configuration ───────────────────────────────────────────────────────
-
   const DEBOUNCE_MS = 2000;
   const MIN_SCRAPE_INTERVAL_MS = 30000;
+  const FALLBACK_DELAY_MS = 10000;
 
   let lastScrapeTime = 0;
   let debounceTimer = null;
+  let networkDataCaptured = false;
 
-  // ─── Platform Detection ──────────────────────────────────────────────────
+  // ─── Platform Detection ──────────────────────────────────────────────
 
   function detectPlatform() {
     const host = window.location.hostname;
@@ -39,14 +39,213 @@
     return null;
   }
 
-  // ─── Generic Price Extraction ──────────────────────────────────────────
-  // Works across all platforms by finding dollar amounts in the DOM.
+  // ─── Network Interception ────────────────────────────────────────────
+  // Intercept XHR and fetch responses to capture structured ticket data
+  // from the site's own API calls. This is passive — no extra requests.
 
-  const PRICE_REGEX = /^\$\s?[\d,]+(?:\.\d{2})?$/;
+  const capturedListings = [];
 
   /**
-   * Parse a price string like "$125.00", "$1,250", "125" into a number.
+   * Try to extract ticket listings from a JSON API response.
+   * Each platform returns data in slightly different formats.
    */
+  function extractFromApiResponse(data, url) {
+    const listings = [];
+
+    try {
+      // StubHub API format: { Items: [{ Price, Section, Row, ... }] }
+      if (data && data.Items && Array.isArray(data.Items)) {
+        for (const item of data.Items) {
+          const price =
+            parseFloat(item.Price) ||
+            parseFloat(item.RawPrice) ||
+            parseFloat(item.PriceWithFees) ||
+            parseFloat(String(item.DisplayPrice).replace(/[^0-9.]/g, "")) ||
+            null;
+          if (!price || price <= 0) continue;
+
+          listings.push({
+            price,
+            section: item.Section || item.SectionName || null,
+            row: item.Row || item.RowName || null,
+            quantity: item.MaxQuantity || item.Quantity || null,
+          });
+        }
+      }
+
+      // StubHub alternative: { sections: [{ listings: [...] }] }
+      if (data && data.sections && Array.isArray(data.sections)) {
+        for (const section of data.sections) {
+          const sectionName = section.sectionName || section.name || null;
+          const sectionListings = section.listings || section.tickets || [];
+          for (const item of sectionListings) {
+            const price =
+              parseFloat(item.price) ||
+              parseFloat(item.currentPrice) ||
+              parseFloat(item.listingPrice) ||
+              null;
+            if (!price || price <= 0) continue;
+            listings.push({
+              price,
+              section: sectionName || item.section || null,
+              row: item.row || null,
+              quantity: item.quantity || null,
+            });
+          }
+        }
+      }
+
+      // Generic: array of objects with price-like fields
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          if (!item || typeof item !== "object") continue;
+          const price =
+            parseFloat(item.price) ||
+            parseFloat(item.Price) ||
+            parseFloat(item.amount) ||
+            parseFloat(item.currentPrice) ||
+            parseFloat(item.rawPrice) ||
+            null;
+          if (!price || price <= 0 || price > 100000) continue;
+          listings.push({
+            price,
+            section:
+              item.section || item.Section || item.sectionName || null,
+            row: item.row || item.Row || item.rowName || null,
+            quantity: item.quantity || item.Quantity || null,
+          });
+        }
+      }
+
+      // Nested: { data: { listings: [...] } } or { results: [...] }
+      const nested =
+        data?.data?.listings ||
+        data?.data?.items ||
+        data?.results ||
+        data?.listings ||
+        data?.tickets ||
+        data?.offers ||
+        null;
+      if (nested && Array.isArray(nested) && listings.length === 0) {
+        for (const item of nested) {
+          if (!item || typeof item !== "object") continue;
+          const price =
+            parseFloat(item.price) ||
+            parseFloat(item.Price) ||
+            parseFloat(item.amount) ||
+            parseFloat(item.rawPrice) ||
+            parseFloat(item.priceWithFees) ||
+            null;
+          if (!price || price <= 0 || price > 100000) continue;
+          listings.push({
+            price,
+            section:
+              item.section || item.Section || item.sectionName || null,
+            row: item.row || item.Row || null,
+            quantity: item.quantity || item.Quantity || null,
+          });
+        }
+      }
+    } catch (err) {
+      // Silently ignore parse errors on non-ticket API responses
+    }
+
+    return listings;
+  }
+
+  /**
+   * Check if a URL looks like a ticket/listing API endpoint.
+   */
+  function isTicketApiUrl(url) {
+    if (!url) return false;
+    const lower = url.toLowerCase();
+    return (
+      lower.includes("listing") ||
+      lower.includes("ticket") ||
+      lower.includes("offer") ||
+      lower.includes("inventory") ||
+      lower.includes("search") ||
+      lower.includes("event") ||
+      lower.includes("catalog") ||
+      lower.includes("price") ||
+      lower.includes("section") ||
+      lower.includes("/api/") ||
+      lower.includes("graphql")
+    );
+  }
+
+  function processInterceptedData(data, url) {
+    const listings = extractFromApiResponse(data, url);
+    if (listings.length > 0) {
+      console.log(
+        `[TicketOps] Intercepted ${listings.length} listings from: ${url}`
+      );
+      capturedListings.push(...listings);
+      networkDataCaptured = true;
+
+      // Debounce: wait for all API responses to settle, then send snapshot
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(sendSnapshot, DEBOUNCE_MS);
+    }
+  }
+
+  // ─── Monkey-patch XMLHttpRequest ─────────────────────────────────────
+
+  const OrigXHR = window.XMLHttpRequest;
+  const origOpen = OrigXHR.prototype.open;
+  const origSend = OrigXHR.prototype.send;
+
+  OrigXHR.prototype.open = function (method, url, ...rest) {
+    this._ticketOpsUrl = url;
+    return origOpen.call(this, method, url, ...rest);
+  };
+
+  OrigXHR.prototype.send = function (...args) {
+    this.addEventListener("load", function () {
+      try {
+        if (
+          this._ticketOpsUrl &&
+          isTicketApiUrl(this._ticketOpsUrl) &&
+          this.responseText
+        ) {
+          const data = JSON.parse(this.responseText);
+          processInterceptedData(data, this._ticketOpsUrl);
+        }
+      } catch {
+        // Not JSON or not relevant — ignore
+      }
+    });
+    return origSend.call(this, ...args);
+  };
+
+  // ─── Monkey-patch fetch ──────────────────────────────────────────────
+
+  const origFetch = window.fetch;
+  window.fetch = async function (...args) {
+    const response = await origFetch.apply(this, args);
+
+    try {
+      const url =
+        typeof args[0] === "string"
+          ? args[0]
+          : args[0]?.url ?? "";
+
+      if (isTicketApiUrl(url)) {
+        // Clone response so the page can still read it
+        const cloned = response.clone();
+        cloned.json().then((data) => {
+          processInterceptedData(data, url);
+        }).catch(() => {});
+      }
+    } catch {
+      // Ignore
+    }
+
+    return response;
+  };
+
+  // ─── DOM Fallback Scraper ────────────────────────────────────────────
+
   function parsePrice(text) {
     if (!text) return null;
     const cleaned = text.replace(/[^0-9.]/g, "");
@@ -54,51 +253,22 @@
     return isNaN(num) || num <= 0 ? null : num;
   }
 
-  /**
-   * Find the listing panel — the scrollable area with ticket cards.
-   * On most sites this is a right-side panel or main content area.
-   */
-  function findListingContainer() {
-    // Try common patterns for the listing panel
-    const candidates = [
-      // StubHub: right panel with listing cards
-      document.querySelector('[class*="ListingList"], [class*="listing-list"]'),
-      document.querySelector('[data-testid*="listing"], [data-testid*="Listing"]'),
-      // Generic: scrollable panels, main content
-      document.querySelector('[role="list"]'),
-      document.querySelector('[class*="search-results"], [class*="SearchResults"]'),
-      document.querySelector('[class*="ticket-list"], [class*="TicketList"]'),
-      document.querySelector('[class*="event-listings"], [class*="EventListings"]'),
-      // Fallback: try the widest scrollable aside/section
-      document.querySelector("aside"),
-      document.querySelector("main"),
-      document.querySelector('[role="main"]'),
-    ];
-
-    for (const c of candidates) {
-      if (c && c.offsetHeight > 200) return c;
-    }
-
-    return document.body;
-  }
-
-  /**
-   * Generic scraper: walks the listing container and extracts all
-   * dollar amounts that look like ticket prices.
-   */
-  function genericScrape() {
-    const container = findListingContainer();
+  function domFallbackScrape() {
     const listings = [];
-    const seenPrices = new Set(); // Dedupe by position
+    const seenPrices = new Set();
 
-    // Strategy: find all text nodes containing dollar amounts
+    const container =
+      document.querySelector("main") ||
+      document.querySelector('[role="main"]') ||
+      document.querySelector("#content") ||
+      document.body;
+
     const walker = document.createTreeWalker(
       container,
       NodeFilter.SHOW_TEXT,
       {
         acceptNode(node) {
           const text = node.textContent?.trim() ?? "";
-          // Match "$56", "$1,250", "$56.00" etc — must start with $
           if (/^\$\s?[\d,]+(?:\.\d{2})?$/.test(text)) {
             return NodeFilter.FILTER_ACCEPT;
           }
@@ -113,29 +283,29 @@
       const price = parsePrice(priceText);
       if (price === null || price < 1 || price > 100000) continue;
 
-      // Get the parent element for context
       const el = node.parentElement;
       if (!el) continue;
 
-      // Dedupe: skip if we already captured a price at this exact position
       const rect = el.getBoundingClientRect();
       const posKey = `${Math.round(rect.x)}-${Math.round(rect.y)}`;
       if (seenPrices.has(posKey)) continue;
       seenPrices.add(posKey);
 
-      // Skip prices in the header, footer, nav, or map overlay
-      if (el.closest("header, footer, nav, [class*='map'], [class*='Map']")) {
+      if (
+        el.closest("header, footer, nav, [class*='map'], [class*='Map']")
+      ) {
         continue;
       }
 
-      // Try to find section/row context by walking up the DOM
       const card =
-        el.closest('[class*="listing"], [class*="Listing"], [class*="ticket"], [class*="Ticket"], [class*="card"], [class*="Card"], [class*="offer"], [class*="Offer"], [role="listitem"], li, tr, article') ??
-        el.parentElement?.parentElement?.parentElement;
+        el.closest(
+          '[class*="listing"], [class*="Listing"], [class*="ticket"], ' +
+            '[class*="Ticket"], [class*="card"], [class*="Card"], ' +
+            '[role="listitem"], li, tr, article'
+        ) ?? el.parentElement?.parentElement?.parentElement;
 
       let section = null;
       if (card) {
-        // Look for "Section XXX" text pattern anywhere in the card
         const cardText = card.textContent ?? "";
         const sectionMatch = cardText.match(/Section\s+(\S+)/i);
         if (sectionMatch) section = sectionMatch[1];
@@ -147,82 +317,37 @@
     return listings;
   }
 
-  // ─── Platform-Specific Overrides ───────────────────────────────────────
-  // These provide better event name extraction per platform.
-  // Price extraction uses the generic scraper for all platforms.
+  // ─── Event Name Extraction ───────────────────────────────────────────
 
-  const platformConfig = {
-    STUBHUB: {
-      getEventName() {
-        // StubHub puts the event name in the page title and various h1/h2 elements
-        const el =
-          document.querySelector('[data-testid="event-title"]') ??
-          document.querySelector("h1") ??
-          document.querySelector('[class*="event"] h1, [class*="Event"] h1');
-        return el?.textContent?.trim() ?? cleanTitle(document.title);
-      },
-    },
+  function getEventName() {
+    const el =
+      document.querySelector('[data-testid="event-title"]') ??
+      document.querySelector("h1.event-header__title") ??
+      document.querySelector("h1");
 
-    TICKETMASTER: {
-      getEventName() {
-        const el =
-          document.querySelector("h1.event-header__title") ??
-          document.querySelector('[data-testid="event-name"]') ??
-          document.querySelector("h1");
-        return el?.textContent?.trim() ?? cleanTitle(document.title);
-      },
-    },
+    if (el) return el.textContent?.trim() ?? cleanTitle(document.title);
+    return cleanTitle(document.title);
+  }
 
-    VIVID_SEATS: {
-      getEventName() {
-        const el =
-          document.querySelector('h1[class*="event-name"]') ??
-          document.querySelector('[data-testid="event-title"]') ??
-          document.querySelector("h1");
-        return el?.textContent?.trim() ?? cleanTitle(document.title);
-      },
-    },
-
-    SEATGEEK: {
-      getEventName() {
-        const el =
-          document.querySelector('h1[class*="EventTitle"]') ??
-          document.querySelector('[data-testid="event-title"]') ??
-          document.querySelector("h1");
-        return el?.textContent?.trim() ?? cleanTitle(document.title);
-      },
-    },
-
-    ETIX: {
-      getEventName() {
-        const el =
-          document.querySelector("h1.event-title") ??
-          document.querySelector('h1[class*="event"]') ??
-          document.querySelector("h1");
-        return el?.textContent?.trim() ?? cleanTitle(document.title);
-      },
-    },
-  };
-
-  /**
-   * Clean up page title — remove "StubHub", "Ticketmaster", etc.
-   */
   function cleanTitle(title) {
     return title
-      .replace(/\s*[-|·]\s*(StubHub|Ticketmaster|Vivid Seats|SeatGeek|Etix).*$/i, "")
+      .replace(
+        /\s*[-|·]\s*(StubHub|Ticketmaster|Vivid Seats|SeatGeek|Etix).*$/i,
+        ""
+      )
       .replace(/\s*[-|·]\s*Buy Tickets.*$/i, "")
       .replace(/\s*Tickets\s*$/i, "")
       .trim();
   }
 
-  // ─── Stats Computation ─────────────────────────────────────────────────
+  // ─── Stats & Snapshot ────────────────────────────────────────────────
 
   function computeStats(listings) {
     if (listings.length === 0) return null;
 
     const prices = listings
       .map((l) => l.price)
-      .filter((p) => p !== null)
+      .filter((p) => p !== null && p > 0)
       .sort((a, b) => a - b);
 
     if (prices.length === 0) return null;
@@ -244,9 +369,7 @@
     };
   }
 
-  // ─── Main Scrape Logic ─────────────────────────────────────────────────
-
-  function scrapeCurrentPage() {
+  function sendSnapshot() {
     const now = Date.now();
     if (now - lastScrapeTime < MIN_SCRAPE_INTERVAL_MS) return;
     lastScrapeTime = now;
@@ -254,15 +377,15 @@
     const platform = detectPlatform();
     if (!platform) return;
 
-    // Use generic price extraction for all platforms
-    const listings = genericScrape();
+    // Use network-intercepted data if available, otherwise DOM fallback
+    let listings = capturedListings.length > 0 ? [...capturedListings] : [];
+    const source = listings.length > 0 ? "network" : "dom";
 
-    // Use platform-specific event name extraction
-    const config = platformConfig[platform] ?? {};
-    const eventName = config.getEventName
-      ? config.getEventName()
-      : cleanTitle(document.title);
+    if (listings.length === 0) {
+      listings = domFallbackScrape();
+    }
 
+    const eventName = getEventName();
     const stats = computeStats(listings);
 
     if (!stats) {
@@ -284,13 +407,16 @@
     });
 
     console.log(
-      `[TicketOps] Captured ${listings.length} listings on ${platform}. ` +
+      `[TicketOps] Captured ${listings.length} listings via ${source} on ${platform}. ` +
         `Get-in: $${stats.getInPrice}, Median: $${stats.medianPrice}, ` +
         `Event: "${eventName}"`
     );
+
+    // Clear captured listings for next round
+    capturedListings.length = 0;
   }
 
-  // ─── MutationObserver Setup ────────────────────────────────────────────
+  // ─── MutationObserver (triggers DOM fallback) ────────────────────────
 
   function setupObserver() {
     const observer = new MutationObserver((mutations) => {
@@ -302,8 +428,11 @@
 
       if (!isRelevant) return;
 
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(scrapeCurrentPage, DEBOUNCE_MS);
+      // Only use DOM observer if network interception hasn't captured anything
+      if (!networkDataCaptured) {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(sendSnapshot, DEBOUNCE_MS);
+      }
     });
 
     const target =
@@ -321,16 +450,24 @@
     return observer;
   }
 
-  // ─── Initialize ────────────────────────────────────────────────────────
+  // ─── Initialize ──────────────────────────────────────────────────────
 
   const platform = detectPlatform();
   if (platform) {
-    console.log(`[TicketOps] Active on ${platform}. Monitoring for listings.`);
+    console.log(
+      `[TicketOps] Active on ${platform}. Intercepting API responses + DOM fallback.`
+    );
 
-    // Initial scrape after page settles
-    setTimeout(scrapeCurrentPage, 3000);
-
-    // Start watching for changes
+    // Set up DOM observer as fallback
     setupObserver();
+
+    // Fallback: if network interception hasn't captured anything after 10s,
+    // try the DOM scraper
+    setTimeout(() => {
+      if (!networkDataCaptured) {
+        console.log("[TicketOps] No API data intercepted, trying DOM fallback...");
+        sendSnapshot();
+      }
+    }, FALLBACK_DELAY_MS);
   }
 })();
