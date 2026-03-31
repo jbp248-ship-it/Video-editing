@@ -1,0 +1,6 @@
+@echo off
+cd /d "%~dp0"
+echo Updating TicketOps...
+git pull 2>nul
+echo Starting TicketOps...
+npm run electron:dev
