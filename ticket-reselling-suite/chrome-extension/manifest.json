@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "TicketOps Market Intelligence",
+  "version": "1.0.0",
+  "description": "Passive market data capture for ticket reselling intelligence.",
+  "permissions": ["storage", "notifications", "activeTab"],
+  "host_permissions": [
+    "https://www.stubhub.com/*",
+    "https://www.ticketmaster.com/*",
+    "https://www.vividseats.com/*",
+    "https://seatgeek.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.stubhub.com/*",
+        "https://www.ticketmaster.com/*",
+        "https://www.vividseats.com/*",
+        "https://seatgeek.com/*"
+      ],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

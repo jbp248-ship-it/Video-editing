@@ -1,0 +1,52 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { z } from "zod";
+
+// ─── GET /api/events ─────────────────────────────────────────────────────────
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const search = searchParams.get("search");
+
+  const where: Record<string, unknown> = {};
+  if (search) {
+    where.name = { contains: search, mode: "insensitive" };
+  }
+
+  const events = await prisma.event.findMany({
+    where,
+    include: {
+      _count: { select: { inventory: true, marketSnapshots: true } },
+    },
+    orderBy: { eventDate: "asc" },
+  });
+
+  return NextResponse.json(events);
+}
+
+// ─── POST /api/events ────────────────────────────────────────────────────────
+
+const CreateEventSchema = z.object({
+  name: z.string().min(1),
+  venue: z.string().min(1),
+  city: z.string().optional(),
+  state: z.string().optional(),
+  eventDate: z.string().transform((s) => new Date(s)),
+  category: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const parsed = CreateEventSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  const event = await prisma.event.create({ data: parsed.data });
+  return NextResponse.json(event, { status: 201 });
+}

@@ -1,0 +1,106 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { calculateProfit } from "@/lib/fees";
+import { lockInventoryOnSale } from "@/lib/locking";
+import { z } from "zod";
+
+// ─── GET /api/sales ──────────────────────────────────────────────────────────
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const inventoryId = searchParams.get("inventoryId");
+  const platform = searchParams.get("platform");
+  const limit = parseInt(searchParams.get("limit") ?? "100", 10);
+
+  const where: Record<string, unknown> = {};
+  if (inventoryId) where.inventoryId = inventoryId;
+  if (platform) where.platform = platform;
+
+  const sales = await prisma.sale.findMany({
+    where,
+    include: { inventory: { include: { event: true } } },
+    orderBy: { saleDate: "desc" },
+    take: limit,
+  });
+
+  return NextResponse.json(sales);
+}
+
+// ─── POST /api/sales ─────────────────────────────────────────────────────────
+// Records a sale. Triggers the locking mechanism and calculates profit.
+
+const CreateSaleSchema = z.object({
+  inventoryId: z.string(),
+  platform: z.string(),
+  salePrice: z.number().positive(),
+  quantitySold: z.number().int().positive().default(1),
+  source: z.string().default("MANUAL"),
+  rawEmailData: z.string().optional(),
+  feeOverrides: z
+    .object({
+      sellerFeePercent: z.number().optional(),
+      processingFeePercent: z.number().optional(),
+    })
+    .optional(),
+});
+
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const parsed = CreateSaleSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  const data = parsed.data;
+
+  // Fetch inventory for cost basis
+  const inventory = await prisma.inventory.findUniqueOrThrow({
+    where: { id: data.inventoryId },
+  });
+
+  // 1. LOCK first — prevent double-sells
+  const lockResult = await lockInventoryOnSale(
+    data.inventoryId,
+    data.platform
+  );
+
+  // 2. Calculate profit
+  const profit = calculateProfit(
+    data.platform,
+    data.salePrice,
+    data.quantitySold,
+    Number(inventory.purchasePrice),
+    inventory.quantity,
+    data.feeOverrides
+  );
+
+  // 3. Create sale record
+  const sale = await prisma.sale.create({
+    data: {
+      inventoryId: data.inventoryId,
+      platform: data.platform as never,
+      salePrice: data.salePrice,
+      quantitySold: data.quantitySold,
+      platformFee: profit.platformFee,
+      processingFee: profit.processingFee,
+      netRevenue: profit.netRevenue,
+      netProfit: profit.netProfit,
+      source: data.source as never,
+      rawEmailData: data.rawEmailData,
+    },
+    include: { inventory: { include: { event: true } } },
+  });
+
+  return NextResponse.json(
+    {
+      sale,
+      lockResult,
+      profitBreakdown: profit,
+    },
+    { status: 201 }
+  );
+}
