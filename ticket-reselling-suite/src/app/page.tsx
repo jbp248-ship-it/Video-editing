@@ -263,6 +263,7 @@ export default function DashboardPage() {
                   { name: "Ticketmaster", fee: "12% + 3% processing" },
                   { name: "Vivid Seats", fee: "10%" },
                   { name: "SeatGeek", fee: "12%" },
+                  { name: "Etix", fee: "10% + 2% processing" },
                 ].map((p) => (
                   <div
                     key={p.name}

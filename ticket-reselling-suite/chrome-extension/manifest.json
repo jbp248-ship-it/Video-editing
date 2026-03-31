@@ -5,21 +5,20 @@
   "description": "Passive market data capture for ticket reselling intelligence.",
   "permissions": ["storage", "notifications", "activeTab", "alarms"],
   "host_permissions": [
-    "https://www.stubhub.com/*",
-    "https://www.ticketmaster.com/*",
-    "https://www.vividseats.com/*",
-    "https://seatgeek.com/*"
+    "*://*.stubhub.com/*",
+    "*://*.ticketmaster.com/*",
+    "*://*.vividseats.com/*",
+    "*://*.seatgeek.com/*",
+    "*://*.etix.com/*"
   ],
-  "background": {
-    "service_worker": "src/background.js"
-  },
   "content_scripts": [
     {
       "matches": [
-        "https://www.stubhub.com/*",
-        "https://www.ticketmaster.com/*",
-        "https://www.vividseats.com/*",
-        "https://seatgeek.com/*"
+        "*://*.stubhub.com/*",
+        "*://*.ticketmaster.com/*",
+        "*://*.vividseats.com/*",
+        "*://*.seatgeek.com/*",
+        "*://*.etix.com/*"
       ],
       "js": ["src/content.js"],
       "run_at": "document_idle"

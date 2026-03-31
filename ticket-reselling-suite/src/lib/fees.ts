@@ -32,6 +32,13 @@ const FEE_SCHEDULES: Record<string, FeeSchedule> = {
     processingFeePercent: 0,
     notes: "~12% seller fee. Variable based on event/category.",
   },
+  ETIX: {
+    platform: "Etix",
+    sellerFeePercent: 10.0,
+    processingFeeFlat: 0,
+    processingFeePercent: 2.0,
+    notes: "~10% seller fee + ~2% processing. Varies by venue contract.",
+  },
   OTHER: {
     platform: "Other",
     sellerFeePercent: 15.0,

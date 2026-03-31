@@ -135,6 +135,7 @@ function getOtherPlatforms(
     "TICKETMASTER",
     "VIVID_SEATS",
     "SEATGEEK",
+    "ETIX",
   ];
 
   return allPlatforms.filter(

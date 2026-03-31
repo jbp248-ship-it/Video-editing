@@ -28,6 +28,7 @@
     if (host.includes("ticketmaster.com")) return "TICKETMASTER";
     if (host.includes("vividseats.com")) return "VIVID_SEATS";
     if (host.includes("seatgeek.com")) return "SEATGEEK";
+    if (host.includes("etix.com")) return "ETIX";
     return null;
   }
 
@@ -174,6 +175,48 @@
         return (
           document.querySelector(
             'h1[class*="EventTitle"], [data-testid="event-title"]'
+          )?.textContent?.trim() ?? document.title
+        );
+      },
+    },
+
+    ETIX: {
+      getListings() {
+        const listings = [];
+
+        // Etix uses table rows and various price display patterns
+        const priceElements = document.querySelectorAll(
+          '[class*="price"], [class*="Price"], .ticket-price, ' +
+          '.seat-price, td[class*="price"], .amount, ' +
+          '[data-price], .cost, .ticket-cost'
+        );
+
+        priceElements.forEach((el) => {
+          const price = parsePrice(el.textContent?.trim() ?? "");
+          if (price === null) return;
+
+          const container = el.closest(
+            'tr, [class*="ticket"], [class*="listing"], ' +
+            '[class*="row"], [class*="seat"], .item'
+          );
+          const section =
+            container?.querySelector(
+              '[class*="section"], [class*="Section"], ' +
+              '[class*="area"], [class*="level"]'
+            )?.textContent?.trim() ?? null;
+
+          listings.push({ price, section });
+        });
+
+        return listings;
+      },
+
+      getEventName() {
+        return (
+          document.querySelector(
+            'h1, .event-title, .event-name, ' +
+            '[class*="event-title"], [class*="eventTitle"], ' +
+            '.show-title, .performance-title'
           )?.textContent?.trim() ?? document.title
         );
       },

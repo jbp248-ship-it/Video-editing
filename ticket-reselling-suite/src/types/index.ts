@@ -14,6 +14,7 @@ export const Platform = {
   TICKETMASTER: "TICKETMASTER",
   VIVID_SEATS: "VIVID_SEATS",
   SEATGEEK: "SEATGEEK",
+  ETIX: "ETIX",
   OTHER: "OTHER",
 } as const;
 
