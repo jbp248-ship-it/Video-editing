@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
 
 // ─── GET /api/inventory ──────────────────────────────────────────────────────
@@ -7,6 +8,8 @@ import { z } from "zod";
 // Query params: ?status=LISTED&platform=STUBHUB&search=taylor
 
 export async function GET(req: NextRequest) {
+  const authError = requireAuth(req);
+  if (authError) return authError;
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
   const platform = searchParams.get("platform");
@@ -46,6 +49,9 @@ const CreateInventorySchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const authError = requireAuth(req);
+  if (authError) return authError;
+
   const body = await req.json();
   const parsed = CreateInventorySchema.safeParse(body);
 

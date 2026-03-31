@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
 
 // ─── GET /api/snapshots ──────────────────────────────────────────────────────
@@ -7,6 +8,9 @@ import { z } from "zod";
 // Query: ?eventId=xxx&platform=STUBHUB&section=101&days=7
 
 export async function GET(req: NextRequest) {
+  const authError = requireAuth(req);
+  if (authError) return authError;
+
   const { searchParams } = new URL(req.url);
   const eventId = searchParams.get("eventId");
   const platform = searchParams.get("platform");
@@ -39,7 +43,7 @@ export async function GET(req: NextRequest) {
 }
 
 // ─── POST /api/snapshots ─────────────────────────────────────────────────────
-// Ingest a market snapshot from the Chrome extension.
+// Ingest market snapshots from the Chrome extension.
 
 const CreateSnapshotSchema = z.object({
   eventId: z.string(),
@@ -54,36 +58,48 @@ const CreateSnapshotSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const authError = requireAuth(req);
+  if (authError) return authError;
+
   const body = await req.json();
 
   // Support batch ingestion
   const items = Array.isArray(body) ? body : [body];
 
-  const results = [];
+  // Validate all items first
+  const validData = [];
+  const errors = [];
   for (const item of items) {
     const parsed = CreateSnapshotSchema.safeParse(item);
     if (!parsed.success) {
-      results.push({ error: parsed.error.flatten(), input: item });
-      continue;
-    }
-
-    const data = parsed.data;
-    const snapshot = await prisma.marketSnapshot.create({
-      data: {
-        eventId: data.eventId,
-        platform: data.platform,
-        section: data.section ?? null,
-        getInPrice: data.getInPrice,
-        medianPrice: data.medianPrice,
-        averagePrice: data.averagePrice,
-        maxPrice: data.maxPrice,
-        totalListings: data.totalListings,
-        totalTickets: data.totalTickets,
+      errors.push({ error: parsed.error.flatten(), input: item });
+    } else {
+      validData.push({
+        eventId: parsed.data.eventId,
+        platform: parsed.data.platform,
+        section: parsed.data.section ?? null,
+        getInPrice: parsed.data.getInPrice,
+        medianPrice: parsed.data.medianPrice ?? null,
+        averagePrice: parsed.data.averagePrice ?? null,
+        maxPrice: parsed.data.maxPrice ?? null,
+        totalListings: parsed.data.totalListings,
+        totalTickets: parsed.data.totalTickets ?? null,
         granularity: "HOURLY",
-      },
-    });
-    results.push(snapshot);
+      });
+    }
   }
 
-  return NextResponse.json(results, { status: 201 });
+  // Batch insert all valid snapshots in a single query
+  let created = 0;
+  if (validData.length > 0) {
+    const result = await prisma.marketSnapshot.createMany({
+      data: validData,
+    });
+    created = result.count;
+  }
+
+  return NextResponse.json(
+    { created, errors: errors.length > 0 ? errors : undefined },
+    { status: 201 }
+  );
 }

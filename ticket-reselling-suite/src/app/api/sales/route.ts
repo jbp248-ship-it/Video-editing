@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 import { calculateProfit } from "@/lib/fees";
 import { lockInventoryOnSale } from "@/lib/locking";
 import { z } from "zod";
@@ -7,6 +8,9 @@ import { z } from "zod";
 // ─── GET /api/sales ──────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
+  const authError = requireAuth(req);
+  if (authError) return authError;
+
   const { searchParams } = new URL(req.url);
   const inventoryId = searchParams.get("inventoryId");
   const platform = searchParams.get("platform");
@@ -45,6 +49,9 @@ const CreateSaleSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const authError = requireAuth(req);
+  if (authError) return authError;
+
   const body = await req.json();
   const parsed = CreateSaleSchema.safeParse(body);
 
@@ -67,6 +74,17 @@ export async function POST(req: NextRequest) {
     data.inventoryId,
     data.platform
   );
+
+  // If already locked by another concurrent sale, reject
+  if (lockResult.alreadyLocked) {
+    return NextResponse.json(
+      {
+        error: "This inventory item is already locked or sold",
+        previousStatus: lockResult.previousStatus,
+      },
+      { status: 409 }
+    );
+  }
 
   // 2. Calculate profit
   const profit = calculateProfit(

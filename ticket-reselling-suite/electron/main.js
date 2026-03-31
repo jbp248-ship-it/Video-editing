@@ -2,7 +2,6 @@ const { app, BrowserWindow, shell } = require("electron");
 const { spawn, execSync } = require("child_process");
 const path = require("path");
 const http = require("http");
-const fs = require("fs");
 
 // Enforce single instance
 const gotLock = app.requestSingleInstanceLock();
@@ -14,6 +13,19 @@ const PORT = 3099;
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let nextProcess = null;
+
+function killProcessTree(proc) {
+  if (!proc || proc.killed) return;
+  if (process.platform === "win32") {
+    try {
+      execSync(`taskkill /F /T /PID ${proc.pid}`, { stdio: "pipe" });
+    } catch (e) {
+      // Process may have already exited
+    }
+  } else {
+    proc.kill();
+  }
+}
 
 function getProjectRoot() {
   if (isDev) {
@@ -41,7 +53,7 @@ function initDatabase() {
   const env = getEnv();
 
   try {
-    execSync("npx prisma db push --skip-generate --accept-data-loss", {
+    execSync("npx prisma db push --skip-generate", {
       cwd: root,
       env,
       shell: true,
@@ -176,7 +188,7 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (nextProcess) {
-    nextProcess.kill();
+    killProcessTree(nextProcess);
     nextProcess = null;
   }
   app.quit();
@@ -184,7 +196,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   if (nextProcess) {
-    nextProcess.kill();
+    killProcessTree(nextProcess);
     nextProcess = null;
   }
 });

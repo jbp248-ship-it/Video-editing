@@ -46,12 +46,22 @@
     },
     "files": [
       "electron/**/*",
-      ".next/**/*",
+      ".next/standalone/**/*",
+      ".next/static/**/*",
       "public/**/*",
-      "prisma/**/*",
+      "prisma/schema.prisma",
       "package.json",
-      "next.config.js",
-      "node_modules/**/*"
+      "next.config.js"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/.prisma",
+        "to": ".prisma"
+      },
+      {
+        "from": "prisma",
+        "to": "prisma"
+      }
     ],
     "win": {
       "target": "nsis"

@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 echo ============================================
 echo   TicketOps - Ticket Reselling Dashboard
 echo ============================================

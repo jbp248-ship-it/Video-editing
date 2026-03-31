@@ -14,7 +14,6 @@
 
   // ─── Configuration ───────────────────────────────────────────────────────
 
-  const DASHBOARD_API = "http://localhost:3000/api/snapshots";
   const DEBOUNCE_MS = 2000; // Wait 2s after DOM settles before scraping
   const MIN_SCRAPE_INTERVAL_MS = 30000; // Don't scrape more than once per 30s
 

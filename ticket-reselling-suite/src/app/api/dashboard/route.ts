@@ -1,10 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 
 // ─── GET /api/dashboard ──────────────────────────────────────────────────────
 // Aggregated stats for the main dashboard view.
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const authError = requireAuth(req);
+  if (authError) return authError;
   const [inventoryStats, salesStats, alertCount, eventCount] =
     await Promise.all([
       // Inventory aggregations
@@ -42,7 +45,7 @@ export async function GET() {
     totalInventoryValue += purchaseSum;
 
     if (group.status === "LISTED") {
-      totalListedValue += listSum * group._count;
+      totalListedValue += listSum; // _sum already aggregates across the group
       activeListings += group._count;
     }
     if (group.status === "PENDING_REMOVAL") {

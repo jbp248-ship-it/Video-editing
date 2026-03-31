@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAuth } from "@/lib/auth";
 
 // ─── GET /api/alerts ─────────────────────────────────────────────────────────
 // Returns unread/undismissed alerts, newest first.
 
 export async function GET(req: NextRequest) {
+  const authError = requireAuth(req);
+  if (authError) return authError;
+
   const { searchParams } = new URL(req.url);
   const showAll = searchParams.get("all") === "true";
 
@@ -23,6 +27,9 @@ export async function GET(req: NextRequest) {
 // Mark alerts as read or dismissed.
 
 export async function PATCH(req: NextRequest) {
+  const authError = requireAuth(req);
+  if (authError) return authError;
+
   const body = await req.json();
   const { ids, action } = body as {
     ids: string[];

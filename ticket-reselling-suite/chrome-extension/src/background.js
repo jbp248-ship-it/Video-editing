@@ -8,8 +8,23 @@
  * - Show notifications for important alerts
  */
 
-const DASHBOARD_API_BASE = "http://localhost:3000/api";
+const DEFAULT_DASHBOARD_PORT = 3099;
+let DASHBOARD_API_BASE = `http://localhost:${DEFAULT_DASHBOARD_PORT}/api`;
 const RETRY_QUEUE_KEY = "ticketops_retry_queue";
+
+// Allow users to configure the dashboard port via chrome.storage
+chrome.storage.local.get("dashboardPort", (data) => {
+  if (data.dashboardPort) {
+    DASHBOARD_API_BASE = `http://localhost:${data.dashboardPort}/api`;
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.dashboardPort) {
+    const port = changes.dashboardPort.newValue ?? DEFAULT_DASHBOARD_PORT;
+    DASHBOARD_API_BASE = `http://localhost:${port}/api`;
+  }
+});
 
 // ─── Message Handler ───────────────────────────────────────────────────────
 

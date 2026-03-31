@@ -23,39 +23,39 @@ document.addEventListener("DOMContentLoaded", () => {
     const snap = response.lastSnapshot;
     if (!snap) return;
 
-    content.innerHTML = `
-      <div class="section-header">Last Capture</div>
-      <div class="stat-row">
-        <span class="stat-label">Platform</span>
-        <span class="stat-value">${snap.platform}</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Event</span>
-        <span class="stat-value">${truncate(snap.eventName, 30)}</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Get-In Price</span>
-        <span class="stat-value price">$${snap.getInPrice?.toFixed(2) ?? "—"}</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Median Price</span>
-        <span class="stat-value">$${snap.medianPrice?.toFixed(2) ?? "—"}</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Total Listings</span>
-        <span class="stat-value">${snap.totalListings ?? "—"}</span>
-      </div>
-      <div class="stat-row">
-        <span class="stat-label">Max Price</span>
-        <span class="stat-value">$${snap.maxPrice?.toFixed(2) ?? "—"}</span>
-      </div>
+    content.textContent = "";
 
-      <div class="section-header">Session Stats</div>
-      <div class="stat-row">
-        <span class="stat-label">Snapshots Captured</span>
-        <span class="stat-value">${response.snapshotCount ?? 0}</span>
-      </div>
-    `;
+    function addHeader(text) {
+      const div = document.createElement("div");
+      div.className = "section-header";
+      div.textContent = text;
+      content.appendChild(div);
+    }
+
+    function addStatRow(label, value, extraClass) {
+      const row = document.createElement("div");
+      row.className = "stat-row";
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "stat-label";
+      labelSpan.textContent = label;
+      const valueSpan = document.createElement("span");
+      valueSpan.className = extraClass ? "stat-value " + extraClass : "stat-value";
+      valueSpan.textContent = value;
+      row.appendChild(labelSpan);
+      row.appendChild(valueSpan);
+      content.appendChild(row);
+    }
+
+    addHeader("Last Capture");
+    addStatRow("Platform", snap.platform);
+    addStatRow("Event", truncate(snap.eventName, 30));
+    addStatRow("Get-In Price", "$" + (snap.getInPrice?.toFixed(2) ?? "—"), "price");
+    addStatRow("Median Price", "$" + (snap.medianPrice?.toFixed(2) ?? "—"));
+    addStatRow("Total Listings", snap.totalListings ?? "—");
+    addStatRow("Max Price", "$" + (snap.maxPrice?.toFixed(2) ?? "—"));
+
+    addHeader("Session Stats");
+    addStatRow("Snapshots Captured", response.snapshotCount ?? 0);
   });
 });
 
