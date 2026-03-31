@@ -6,7 +6,7 @@ const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: "📊" },
   { id: "inventory", label: "Inventory", icon: "🎫" },
   { id: "sales", label: "Sales", icon: "💰" },
-  { id: "market", label: "Market Intel", icon: "📈" },
+  { id: "market", label: "Market Scanner", icon: "🔍" },
   { id: "alerts", label: "Alerts", icon: "🔔" },
   { id: "settings", label: "Settings", icon: "⚙️" },
 ];

@@ -11,7 +11,7 @@
     "lint": "next lint",
     "electron:dev": "electron .",
     "electron:build": "next build && electron-builder --win",
-    "postinstall": "prisma generate",
+    "postinstall": "prisma generate && npx playwright install chromium",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
@@ -24,7 +24,8 @@
     "react-dom": "^18.3.0",
     "recharts": "^2.12.0",
     "date-fns": "^3.6.0",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "playwright": "^1.49.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

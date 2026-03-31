@@ -1,0 +1,412 @@
+/**
+ * Market Scanner — Playwright-based headless browser scraper
+ *
+ * Uses a real headless Chromium browser to:
+ * 1. Load ticket marketplace pages with full JS rendering
+ * 2. Intercept network responses to capture structured API data
+ * 3. Fall back to DOM extraction if network interception misses data
+ * 4. Extract event name, venue, date, and all listing details
+ *
+ * This runs server-side in the Next.js API route, NOT in the browser.
+ */
+
+import { chromium, type Browser, type Page } from "playwright";
+
+export interface ScanListing {
+  section: string;
+  row: string;
+  price: number;
+  quantity: number;
+  priceWithFees: number | null;
+}
+
+export interface ScanResult {
+  eventName: string;
+  venue: string;
+  date: string;
+  platform: string;
+  listings: ScanListing[];
+  stats: {
+    getInPrice: number;
+    medianPrice: number;
+    averagePrice: number;
+    maxPrice: number;
+    totalListings: number;
+  };
+  scannedAt: string;
+}
+
+let browserInstance: Browser | null = null;
+
+async function getBrowser(): Promise<Browser> {
+  if (browserInstance && browserInstance.isConnected()) {
+    return browserInstance;
+  }
+  browserInstance = await chromium.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-blink-features=AutomationControlled",
+    ],
+  });
+  return browserInstance;
+}
+
+export async function closeBrowser(): Promise<void> {
+  if (browserInstance) {
+    await browserInstance.close();
+    browserInstance = null;
+  }
+}
+
+function detectPlatform(url: string): string {
+  const lower = url.toLowerCase();
+  if (lower.includes("stubhub.com")) return "STUBHUB";
+  if (lower.includes("ticketmaster.com")) return "TICKETMASTER";
+  if (lower.includes("vividseats.com")) return "VIVID_SEATS";
+  if (lower.includes("seatgeek.com")) return "SEATGEEK";
+  if (lower.includes("etix.com")) return "ETIX";
+  return "OTHER";
+}
+
+/**
+ * Scan a ticket marketplace URL and extract all listing data.
+ */
+export async function scanUrl(url: string): Promise<ScanResult> {
+  const browser = await getBrowser();
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+      "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    viewport: { width: 1440, height: 900 },
+    locale: "en-US",
+  });
+
+  const page = await context.newPage();
+  const interceptedListings: ScanListing[] = [];
+
+  // Intercept ALL network responses and look for ticket data
+  page.on("response", async (response) => {
+    try {
+      const contentType = response.headers()["content-type"] ?? "";
+      if (!contentType.includes("json")) return;
+
+      const body = await response.json();
+      const found = extractListingsFromJson(body);
+      if (found.length > 0) {
+        interceptedListings.push(...found);
+      }
+    } catch {
+      // Not JSON or can't parse — skip
+    }
+  });
+
+  try {
+    // Navigate and wait for the page to fully render
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+
+    // Wait extra time for dynamic content to load
+    await page.waitForTimeout(3000);
+
+    // Scroll down to trigger lazy-loaded listings
+    await autoScroll(page);
+    await page.waitForTimeout(2000);
+
+    // Extract event info from the page
+    const eventInfo = await page.evaluate(() => {
+      const h1 = document.querySelector("h1");
+      const eventName = h1?.textContent?.trim() ?? document.title;
+
+      // Try to find venue and date
+      let venue = "";
+      let date = "";
+
+      // Common patterns across sites
+      const allText = document.body.innerText;
+
+      // Venue: usually near the event title
+      const venueEl =
+        document.querySelector('[class*="venue" i], [class*="location" i], [data-testid*="venue"]');
+      if (venueEl) venue = venueEl.textContent?.trim() ?? "";
+
+      // Date: look for date-like patterns
+      const dateEl =
+        document.querySelector('[class*="date" i], time, [datetime], [data-testid*="date"]');
+      if (dateEl) {
+        date = dateEl.getAttribute("datetime") ?? dateEl.textContent?.trim() ?? "";
+      }
+
+      return { eventName, venue, date };
+    });
+
+    // DOM-based price extraction as supplement
+    const domListings = await extractFromDom(page);
+
+    // Combine network + DOM results, deduplicate
+    const allListings = deduplicateListings([
+      ...interceptedListings,
+      ...domListings,
+    ]);
+
+    if (allListings.length === 0) {
+      throw new Error(
+        "No listings found. The page may require login, or the event may be sold out."
+      );
+    }
+
+    const stats = computeStats(allListings);
+
+    return {
+      eventName: cleanEventName(eventInfo.eventName),
+      venue: eventInfo.venue,
+      date: eventInfo.date,
+      platform: detectPlatform(url),
+      listings: allListings.sort((a, b) => a.price - b.price),
+      stats,
+      scannedAt: new Date().toISOString(),
+    };
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * Recursively extract ticket listings from any JSON structure.
+ */
+function extractListingsFromJson(obj: unknown, depth = 0): ScanListing[] {
+  if (depth > 8 || !obj || typeof obj !== "object") return [];
+
+  const results: ScanListing[] = [];
+
+  if (isTicketObject(obj as Record<string, unknown>)) {
+    const o = obj as Record<string, unknown>;
+    const price =
+      toNumber(o.RawPrice) ??
+      toNumber(o.rawPrice) ??
+      toNumber(o.DisplayPrice) ??
+      toNumber(o.displayPrice) ??
+      toNumber(o.Price) ??
+      toNumber(o.price) ??
+      toNumber(o.currentPrice) ??
+      toNumber(o.PriceWithFees) ??
+      toNumber(o.amount);
+
+    if (price && price > 0 && price < 100000) {
+      results.push({
+        price,
+        section: String(o.Section ?? o.section ?? o.SectionName ?? o.sectionName ?? ""),
+        row: String(o.Row ?? o.row ?? o.RowName ?? o.rowName ?? ""),
+        quantity: toNumber(o.MaxQuantity ?? o.Quantity ?? o.quantity ?? o.maxQuantity) ?? 1,
+        priceWithFees:
+          toNumber(o.PriceWithFees) ??
+          toNumber(o.priceWithFees) ??
+          toNumber(o.allInPrice) ??
+          null,
+      });
+      return results;
+    }
+  }
+
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      results.push(...extractListingsFromJson(item, depth + 1));
+    }
+    return results;
+  }
+
+  const o = obj as Record<string, unknown>;
+  const keysToCheck = [
+    "Items", "items", "listings", "tickets", "offers", "data",
+    "results", "sections", "inventory", "ticketListings", "grid",
+    "pageProps", "props", "listing", "events", "search",
+    "initialData", "content", "body", "payload",
+  ];
+
+  for (const key of keysToCheck) {
+    if (o[key] !== undefined) {
+      results.push(...extractListingsFromJson(o[key], depth + 1));
+    }
+  }
+
+  return results;
+}
+
+function isTicketObject(obj: Record<string, unknown>): boolean {
+  return (
+    obj.RawPrice !== undefined ||
+    obj.rawPrice !== undefined ||
+    obj.DisplayPrice !== undefined ||
+    obj.displayPrice !== undefined ||
+    obj.PriceWithFees !== undefined ||
+    obj.priceWithFees !== undefined ||
+    (obj.price !== undefined &&
+      (obj.section !== undefined || obj.Section !== undefined || obj.row !== undefined)) ||
+    (obj.Price !== undefined &&
+      (obj.Section !== undefined || obj.Row !== undefined))
+  );
+}
+
+function toNumber(val: unknown): number | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === "number") return val;
+  const cleaned = String(val).replace(/[^0-9.]/g, "");
+  const num = parseFloat(cleaned);
+  return isNaN(num) ? null : num;
+}
+
+/**
+ * Extract prices and section info directly from the rendered DOM.
+ */
+async function extractFromDom(page: Page): Promise<ScanListing[]> {
+  return page.evaluate(() => {
+    const listings: Array<{
+      price: number;
+      section: string;
+      row: string;
+      quantity: number;
+      priceWithFees: number | null;
+    }> = [];
+    const seen = new Set<string>();
+
+    function parsePrice(text: string): number | null {
+      const cleaned = text.replace(/[^0-9.]/g, "");
+      const num = parseFloat(cleaned);
+      return isNaN(num) || num <= 0 || num > 100000 ? null : num;
+    }
+
+    // Strategy 1: Text nodes with $XX patterns
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node: Text) {
+          const t = node.textContent?.trim() ?? "";
+          return /^\$\s?[\d,]+(?:\.\d{2})?$/.test(t)
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_SKIP;
+        },
+      }
+    );
+
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      const price = parsePrice(node.textContent?.trim() ?? "");
+      if (!price || price < 5) continue;
+
+      const el = node.parentElement;
+      if (!el) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) continue;
+      const key = `${Math.round(rect.x)}-${Math.round(rect.y)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      if (el.closest("header, footer, nav")) continue;
+
+      const card =
+        el.closest("li, tr, article, [role='listitem'], button") ??
+        el.parentElement?.parentElement?.parentElement;
+      const cardText = card?.textContent ?? "";
+      const secMatch = cardText.match(/Section\s+(\S+)/i);
+      const rowMatch = cardText.match(/Row\s+(\S+)/i);
+
+      listings.push({
+        price,
+        section: secMatch ? secMatch[1] : "",
+        row: rowMatch ? rowMatch[1] : "",
+        quantity: 1,
+        priceWithFees: null,
+      });
+    }
+
+    // Strategy 2: aria-labels and data attributes
+    const priceEls = document.querySelectorAll(
+      "[aria-label*='$'], [data-price], [data-amount], button[aria-label]"
+    );
+    priceEls.forEach((el) => {
+      const text =
+        el.getAttribute("aria-label") ??
+        el.getAttribute("data-price") ??
+        el.getAttribute("data-amount") ??
+        "";
+      const match = text.match(/\$\s?([\d,]+(?:\.\d{2})?)/);
+      if (!match) return;
+      const price = parsePrice(match[1]);
+      if (!price || price < 5) return;
+
+      const key = `aria-${text.substring(0, 40)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+
+      const secMatch = text.match(/(?:Section|Sec\.?)\s+(\S+)/i);
+      const rowMatch = text.match(/Row\s+(\S+)/i);
+      listings.push({
+        price,
+        section: secMatch ? secMatch[1] : "",
+        row: rowMatch ? rowMatch[1] : "",
+        quantity: 1,
+        priceWithFees: null,
+      });
+    });
+
+    return listings;
+  });
+}
+
+function deduplicateListings(listings: ScanListing[]): ScanListing[] {
+  const seen = new Set<string>();
+  return listings.filter((l) => {
+    const key = `${l.price}-${l.section}-${l.row}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function autoScroll(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    await new Promise<void>((resolve) => {
+      let totalHeight = 0;
+      const distance = 400;
+      const timer = setInterval(() => {
+        window.scrollBy(0, distance);
+        totalHeight += distance;
+        if (totalHeight >= document.body.scrollHeight || totalHeight > 10000) {
+          clearInterval(timer);
+          window.scrollTo(0, 0);
+          resolve();
+        }
+      }, 100);
+    });
+  });
+}
+
+function computeStats(listings: ScanListing[]) {
+  const prices = listings.map((l) => l.price).sort((a, b) => a - b);
+  const sum = prices.reduce((a, b) => a + b, 0);
+  const mid = Math.floor(prices.length / 2);
+  const median =
+    prices.length % 2 === 0
+      ? (prices[mid - 1] + prices[mid]) / 2
+      : prices[mid];
+
+  return {
+    getInPrice: prices[0],
+    medianPrice: Math.round(median * 100) / 100,
+    averagePrice: Math.round((sum / prices.length) * 100) / 100,
+    maxPrice: prices[prices.length - 1],
+    totalListings: listings.length,
+  };
+}
+
+function cleanEventName(name: string): string {
+  return name
+    .replace(
+      /\s*[-|·]\s*(StubHub|Ticketmaster|Vivid Seats|SeatGeek|Etix).*$/i,
+      ""
+    )
+    .replace(/\s*[-|·]\s*Buy Tickets.*$/i, "")
+    .replace(/\s*Tickets?\s*$/i, "")
+    .trim();
+}

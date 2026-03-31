@@ -6,6 +6,7 @@ import { StatsGrid } from "@/components/StatsGrid";
 import { InventoryTable } from "@/components/InventoryTable";
 import { AlertPanel } from "@/components/AlertPanel";
 import { PriceTrendChart } from "@/components/PriceTrendChart";
+import { MarketScanner } from "@/components/MarketScanner";
 import type { DashboardStats } from "@/types";
 
 export default function DashboardPage() {
@@ -134,7 +135,7 @@ export default function DashboardPage() {
         {/* Top Bar */}
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-slate-700 bg-slate-900/80 backdrop-blur px-6">
           <h1 className="text-lg font-semibold capitalize">
-            {activeTab === "market" ? "Market Intelligence" : activeTab}
+            {activeTab === "market" ? "Market Scanner" : activeTab}
           </h1>
           <div className="flex items-center gap-4">
             <input
@@ -236,16 +237,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ─── Market Intel View ──────────────────────────── */}
-          {activeTab === "market" && (
-            <>
-              <p className="text-sm text-slate-400">
-                Use the Chrome extension to capture market snapshots. Price
-                trends will appear below.
-              </p>
-              <PriceTrendChart data={snapshots} title="All Events — Get-In Price Trend" />
-            </>
-          )}
+          {/* ─── Market Scanner View ──────────────────────────── */}
+          {activeTab === "market" && <MarketScanner />}
 
           {/* ─── Alerts View ────────────────────────────────── */}
           {activeTab === "alerts" && (
