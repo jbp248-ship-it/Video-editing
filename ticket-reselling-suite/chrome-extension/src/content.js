@@ -7,6 +7,13 @@
  * - We use MutationObserver to detect when ticket listings update.
  * - This is virtually invisible to bot detectors (Akamai, PerimeterX)
  *   because it creates zero additional server traffic.
+ *
+ * RESILIENT SELECTOR STRATEGY:
+ * - Ticket sites use obfuscated/dynamic class names that change frequently.
+ * - Instead of targeting specific classes, we use a generic approach:
+ *   1. Find the main listing container (right panel, list view)
+ *   2. Walk the DOM looking for dollar-amount text nodes
+ *   3. Extract section/row context from surrounding text
  */
 
 (function () {
@@ -14,8 +21,8 @@
 
   // ─── Configuration ───────────────────────────────────────────────────────
 
-  const DEBOUNCE_MS = 2000; // Wait 2s after DOM settles before scraping
-  const MIN_SCRAPE_INTERVAL_MS = 30000; // Don't scrape more than once per 30s
+  const DEBOUNCE_MS = 2000;
+  const MIN_SCRAPE_INTERVAL_MS = 30000;
 
   let lastScrapeTime = 0;
   let debounceTimer = null;
@@ -32,213 +39,10 @@
     return null;
   }
 
-  // ─── DOM Parsing Strategies (per-platform) ───────────────────────────────
-  // Each parser reads ONLY from rendered DOM elements.
-  // Selectors may need updating as sites change their markup.
+  // ─── Generic Price Extraction ──────────────────────────────────────────
+  // Works across all platforms by finding dollar amounts in the DOM.
 
-  const parsers = {
-    STUBHUB: {
-      /**
-       * StubHub renders ticket listings in a grid/list view.
-       * Key elements: price containers, section labels, row info.
-       */
-      getListings() {
-        const listings = [];
-        // StubHub uses data attributes and specific class patterns
-        const priceElements = document.querySelectorAll(
-          '[data-testid="listing-price"], .TicketPrice, [class*="Price"]'
-        );
-
-        priceElements.forEach((el) => {
-          const priceText = el.textContent?.trim() ?? "";
-          const price = parsePrice(priceText);
-          if (price === null) return;
-
-          // Walk up DOM to find section/row context
-          const listingContainer = el.closest(
-            '[data-testid="listing"], [class*="Listing"], [class*="ticket-card"]'
-          );
-          const section =
-            listingContainer?.querySelector(
-              '[class*="Section"], [class*="section"]'
-            )?.textContent?.trim() ?? null;
-
-          listings.push({ price, section });
-        });
-
-        return listings;
-      },
-
-      getEventName() {
-        return (
-          document.querySelector(
-            '[data-testid="event-title"], h1[class*="Event"], .event-header h1'
-          )?.textContent?.trim() ?? document.title
-        );
-      },
-    },
-
-    TICKETMASTER: {
-      getListings() {
-        const listings = [];
-        const priceElements = document.querySelectorAll(
-          '.offer-card__price, [data-testid="offer-price"], [class*="resale-price"]'
-        );
-
-        priceElements.forEach((el) => {
-          const price = parsePrice(el.textContent?.trim() ?? "");
-          if (price === null) return;
-
-          const container = el.closest(
-            '.offer-card, [data-testid="offer-card"], [class*="listing-row"]'
-          );
-          const section =
-            container?.querySelector(
-              '[class*="section"], [class*="Section"]'
-            )?.textContent?.trim() ?? null;
-
-          listings.push({ price, section });
-        });
-
-        return listings;
-      },
-
-      getEventName() {
-        return (
-          document.querySelector(
-            'h1.event-header__title, [data-testid="event-name"], .event-name'
-          )?.textContent?.trim() ?? document.title
-        );
-      },
-    },
-
-    VIVID_SEATS: {
-      getListings() {
-        const listings = [];
-        const priceElements = document.querySelectorAll(
-          '[class*="ticket-price"], [data-testid*="price"], .listing-price'
-        );
-
-        priceElements.forEach((el) => {
-          const price = parsePrice(el.textContent?.trim() ?? "");
-          if (price === null) return;
-
-          const container = el.closest(
-            '[class*="ticket-listing"], [class*="listing-row"]'
-          );
-          const section =
-            container?.querySelector(
-              '[class*="section"]'
-            )?.textContent?.trim() ?? null;
-
-          listings.push({ price, section });
-        });
-
-        return listings;
-      },
-
-      getEventName() {
-        return (
-          document.querySelector(
-            'h1[class*="event-name"], [data-testid="event-title"]'
-          )?.textContent?.trim() ?? document.title
-        );
-      },
-    },
-
-    SEATGEEK: {
-      getListings() {
-        const listings = [];
-        const priceElements = document.querySelectorAll(
-          '[class*="ListingPrice"], [class*="listing-price"], [data-testid*="price"]'
-        );
-
-        priceElements.forEach((el) => {
-          const price = parsePrice(el.textContent?.trim() ?? "");
-          if (price === null) return;
-
-          const container = el.closest(
-            '[class*="Listing"], [class*="listing-row"]'
-          );
-          const section =
-            container?.querySelector(
-              '[class*="section"], [class*="Section"]'
-            )?.textContent?.trim() ?? null;
-
-          listings.push({ price, section });
-        });
-
-        return listings;
-      },
-
-      getEventName() {
-        return (
-          document.querySelector(
-            'h1[class*="EventTitle"], [data-testid="event-title"]'
-          )?.textContent?.trim() ?? document.title
-        );
-      },
-    },
-
-    ETIX: {
-      getListings() {
-        const listings = [];
-
-        // Etix renders tickets in table rows or card-style layouts.
-        // Target price elements that are children of ticket/seat containers only.
-        const containers = document.querySelectorAll(
-          '.ticket-row, .seat-row, [class*="ticket-item"], ' +
-          '[class*="seat-listing"], [class*="price-level"], ' +
-          'tr[class*="ticket"], tr[class*="seat"], ' +
-          '.ticket-group, .price-row'
-        );
-
-        containers.forEach((container) => {
-          // Find price within this specific ticket container
-          const priceEl = container.querySelector(
-            '[class*="ticket-price"], [class*="seat-price"], ' +
-            '[class*="price-value"], .price, [data-price]'
-          );
-          if (!priceEl) return;
-          const price = parsePrice(priceEl.textContent?.trim() ?? "");
-          if (price === null) return;
-
-          const section =
-            container.querySelector(
-              '[class*="section"], [class*="area"], [class*="level"]'
-            )?.textContent?.trim() ?? null;
-
-          listings.push({ price, section });
-        });
-
-        // Fallback: if no containers found, try direct price elements
-        // but only from the main content area
-        if (listings.length === 0) {
-          const main = document.querySelector("main, #content, .main-content, [role='main']") ?? document.body;
-          const priceEls = main.querySelectorAll(
-            '.ticket-price, .seat-price, [class*="ticket-price"], [class*="seat-price"]'
-          );
-          priceEls.forEach((el) => {
-            const price = parsePrice(el.textContent?.trim() ?? "");
-            if (price !== null) listings.push({ price, section: null });
-          });
-        }
-
-        return listings;
-      },
-
-      getEventName() {
-        return (
-          document.querySelector(
-            'h1.event-title, h1.event-name, h1[class*="event-title"], ' +
-            'h1[class*="eventTitle"], .show-title, .performance-title'
-          )?.textContent?.trim() ?? document.title
-        );
-      },
-    },
-  };
-
-  // ─── Utility Functions ───────────────────────────────────────────────────
+  const PRICE_REGEX = /^\$\s?[\d,]+(?:\.\d{2})?$/;
 
   /**
    * Parse a price string like "$125.00", "$1,250", "125" into a number.
@@ -251,8 +55,168 @@
   }
 
   /**
-   * Compute aggregate stats from a list of prices.
+   * Find the listing panel — the scrollable area with ticket cards.
+   * On most sites this is a right-side panel or main content area.
    */
+  function findListingContainer() {
+    // Try common patterns for the listing panel
+    const candidates = [
+      // StubHub: right panel with listing cards
+      document.querySelector('[class*="ListingList"], [class*="listing-list"]'),
+      document.querySelector('[data-testid*="listing"], [data-testid*="Listing"]'),
+      // Generic: scrollable panels, main content
+      document.querySelector('[role="list"]'),
+      document.querySelector('[class*="search-results"], [class*="SearchResults"]'),
+      document.querySelector('[class*="ticket-list"], [class*="TicketList"]'),
+      document.querySelector('[class*="event-listings"], [class*="EventListings"]'),
+      // Fallback: try the widest scrollable aside/section
+      document.querySelector("aside"),
+      document.querySelector("main"),
+      document.querySelector('[role="main"]'),
+    ];
+
+    for (const c of candidates) {
+      if (c && c.offsetHeight > 200) return c;
+    }
+
+    return document.body;
+  }
+
+  /**
+   * Generic scraper: walks the listing container and extracts all
+   * dollar amounts that look like ticket prices.
+   */
+  function genericScrape() {
+    const container = findListingContainer();
+    const listings = [];
+    const seenPrices = new Set(); // Dedupe by position
+
+    // Strategy: find all text nodes containing dollar amounts
+    const walker = document.createTreeWalker(
+      container,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          const text = node.textContent?.trim() ?? "";
+          // Match "$56", "$1,250", "$56.00" etc — must start with $
+          if (/^\$\s?[\d,]+(?:\.\d{2})?$/.test(text)) {
+            return NodeFilter.FILTER_ACCEPT;
+          }
+          return NodeFilter.FILTER_SKIP;
+        },
+      }
+    );
+
+    let node;
+    while ((node = walker.nextNode())) {
+      const priceText = node.textContent?.trim() ?? "";
+      const price = parsePrice(priceText);
+      if (price === null || price < 1 || price > 100000) continue;
+
+      // Get the parent element for context
+      const el = node.parentElement;
+      if (!el) continue;
+
+      // Dedupe: skip if we already captured a price at this exact position
+      const rect = el.getBoundingClientRect();
+      const posKey = `${Math.round(rect.x)}-${Math.round(rect.y)}`;
+      if (seenPrices.has(posKey)) continue;
+      seenPrices.add(posKey);
+
+      // Skip prices in the header, footer, nav, or map overlay
+      if (el.closest("header, footer, nav, [class*='map'], [class*='Map']")) {
+        continue;
+      }
+
+      // Try to find section/row context by walking up the DOM
+      const card =
+        el.closest('[class*="listing"], [class*="Listing"], [class*="ticket"], [class*="Ticket"], [class*="card"], [class*="Card"], [class*="offer"], [class*="Offer"], [role="listitem"], li, tr, article') ??
+        el.parentElement?.parentElement?.parentElement;
+
+      let section = null;
+      if (card) {
+        // Look for "Section XXX" text pattern anywhere in the card
+        const cardText = card.textContent ?? "";
+        const sectionMatch = cardText.match(/Section\s+(\S+)/i);
+        if (sectionMatch) section = sectionMatch[1];
+      }
+
+      listings.push({ price, section });
+    }
+
+    return listings;
+  }
+
+  // ─── Platform-Specific Overrides ───────────────────────────────────────
+  // These provide better event name extraction per platform.
+  // Price extraction uses the generic scraper for all platforms.
+
+  const platformConfig = {
+    STUBHUB: {
+      getEventName() {
+        // StubHub puts the event name in the page title and various h1/h2 elements
+        const el =
+          document.querySelector('[data-testid="event-title"]') ??
+          document.querySelector("h1") ??
+          document.querySelector('[class*="event"] h1, [class*="Event"] h1');
+        return el?.textContent?.trim() ?? cleanTitle(document.title);
+      },
+    },
+
+    TICKETMASTER: {
+      getEventName() {
+        const el =
+          document.querySelector("h1.event-header__title") ??
+          document.querySelector('[data-testid="event-name"]') ??
+          document.querySelector("h1");
+        return el?.textContent?.trim() ?? cleanTitle(document.title);
+      },
+    },
+
+    VIVID_SEATS: {
+      getEventName() {
+        const el =
+          document.querySelector('h1[class*="event-name"]') ??
+          document.querySelector('[data-testid="event-title"]') ??
+          document.querySelector("h1");
+        return el?.textContent?.trim() ?? cleanTitle(document.title);
+      },
+    },
+
+    SEATGEEK: {
+      getEventName() {
+        const el =
+          document.querySelector('h1[class*="EventTitle"]') ??
+          document.querySelector('[data-testid="event-title"]') ??
+          document.querySelector("h1");
+        return el?.textContent?.trim() ?? cleanTitle(document.title);
+      },
+    },
+
+    ETIX: {
+      getEventName() {
+        const el =
+          document.querySelector("h1.event-title") ??
+          document.querySelector('h1[class*="event"]') ??
+          document.querySelector("h1");
+        return el?.textContent?.trim() ?? cleanTitle(document.title);
+      },
+    },
+  };
+
+  /**
+   * Clean up page title — remove "StubHub", "Ticketmaster", etc.
+   */
+  function cleanTitle(title) {
+    return title
+      .replace(/\s*[-|·]\s*(StubHub|Ticketmaster|Vivid Seats|SeatGeek|Etix).*$/i, "")
+      .replace(/\s*[-|·]\s*Buy Tickets.*$/i, "")
+      .replace(/\s*Tickets\s*$/i, "")
+      .trim();
+  }
+
+  // ─── Stats Computation ─────────────────────────────────────────────────
+
   function computeStats(listings) {
     if (listings.length === 0) return null;
 
@@ -276,11 +240,11 @@
       averagePrice: Math.round((sum / prices.length) * 100) / 100,
       maxPrice: prices[prices.length - 1],
       totalListings: listings.length,
-      totalTickets: listings.length, // Approximate; 1 listing ≈ 1+ tickets
+      totalTickets: listings.length,
     };
   }
 
-  // ─── Main Scrape Logic ───────────────────────────────────────────────────
+  // ─── Main Scrape Logic ─────────────────────────────────────────────────
 
   function scrapeCurrentPage() {
     const now = Date.now();
@@ -288,14 +252,23 @@
     lastScrapeTime = now;
 
     const platform = detectPlatform();
-    if (!platform || !parsers[platform]) return;
+    if (!platform) return;
 
-    const parser = parsers[platform];
-    const listings = parser.getListings();
-    const eventName = parser.getEventName();
+    // Use generic price extraction for all platforms
+    const listings = genericScrape();
+
+    // Use platform-specific event name extraction
+    const config = platformConfig[platform] ?? {};
+    const eventName = config.getEventName
+      ? config.getEventName()
+      : cleanTitle(document.title);
+
     const stats = computeStats(listings);
 
-    if (!stats) return;
+    if (!stats) {
+      console.log("[TicketOps] No listings found on this page.");
+      return;
+    }
 
     const snapshot = {
       platform,
@@ -305,28 +278,22 @@
       capturedAt: new Date().toISOString(),
     };
 
-    // Send to background script (which forwards to dashboard API)
     chrome.runtime.sendMessage({
       type: "MARKET_SNAPSHOT",
       data: snapshot,
     });
 
     console.log(
-      `[TicketOps] Captured ${listings.length} listings. Get-in: $${stats.getInPrice}`
+      `[TicketOps] Captured ${listings.length} listings on ${platform}. ` +
+        `Get-in: $${stats.getInPrice}, Median: $${stats.medianPrice}, ` +
+        `Event: "${eventName}"`
     );
   }
 
-  // ─── MutationObserver Setup ──────────────────────────────────────────────
-  // Watch for DOM changes that indicate ticket listings have been
-  // added/updated/removed. This catches:
-  // - Initial page load rendering
-  // - Infinite scroll loading
-  // - Sort/filter changes
-  // - Dynamic price updates
+  // ─── MutationObserver Setup ────────────────────────────────────────────
 
   function setupObserver() {
     const observer = new MutationObserver((mutations) => {
-      // Check if any mutation is relevant (contains pricing/listing elements)
       const isRelevant = mutations.some((m) => {
         if (m.type === "childList" && m.addedNodes.length > 0) return true;
         if (m.type === "characterData") return true;
@@ -335,13 +302,10 @@
 
       if (!isRelevant) return;
 
-      // Debounce: wait for DOM to settle before scraping
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(scrapeCurrentPage, DEBOUNCE_MS);
     });
 
-    // Observe the main content area, not the entire document
-    // This reduces noise from header/footer/ad mutations
     const target =
       document.querySelector("main") ||
       document.querySelector('[role="main"]') ||
@@ -357,7 +321,7 @@
     return observer;
   }
 
-  // ─── Initialize ──────────────────────────────────────────────────────────
+  // ─── Initialize ────────────────────────────────────────────────────────
 
   const platform = detectPlatform();
   if (platform) {
