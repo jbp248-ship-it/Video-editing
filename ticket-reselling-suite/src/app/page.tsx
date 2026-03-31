@@ -106,8 +106,8 @@ export default function DashboardPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids, action: "dismiss" }),
     });
-    setAlerts((prev: { id: string }[]) =>
-      prev.filter((a) => !ids.includes(a.id))
+    setAlerts((prev) =>
+      (prev as { id: string }[]).filter((a) => !ids.includes(a.id))
     );
     setAlertCount((c) => Math.max(0, c - ids.length));
   };
@@ -118,8 +118,10 @@ export default function DashboardPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids, action: "read" }),
     });
-    setAlerts((prev: { id: string; read: boolean }[]) =>
-      prev.map((a) => (ids.includes(a.id) ? { ...a, read: true } : a))
+    setAlerts((prev) =>
+      (prev as { id: string; read: boolean }[]).map((a) =>
+        ids.includes(a.id) ? { ...a, read: true } : a
+      )
     );
     setAlertCount((c) => Math.max(0, c - ids.length));
   };
