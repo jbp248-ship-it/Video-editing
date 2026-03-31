@@ -259,7 +259,6 @@ export function TicketBrowser() {
               border: "1px solid #E8E2DB",
               backgroundColor: "#FFFFFF",
               color: "#2D2B28",
-              focusRingColor: "#D97706",
             }}
           />
           <button type="submit" className="btn-primary px-6 rounded-xl">
