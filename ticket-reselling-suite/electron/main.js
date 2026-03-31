@@ -131,12 +131,16 @@ function createWindow() {
 function resizeBrowserView() {
   if (!ticketBrowserView || !mainWindow) return;
   const bounds = mainWindow.getContentBounds();
-  // Leave space for the dashboard sidebar (224px) and browser toolbar (48px)
+  // Layout: sidebar (224px) | browser | data panel (380px)
+  // Browser toolbar is 44px tall
+  const sidebarWidth = 224;
+  const dataPanelWidth = 380;
+  const toolbarHeight = 44;
   ticketBrowserView.setBounds({
-    x: 224,
-    y: 48,
-    width: bounds.width - 224,
-    height: bounds.height - 48,
+    x: sidebarWidth,
+    y: toolbarHeight,
+    width: Math.max(400, bounds.width - sidebarWidth - dataPanelWidth),
+    height: bounds.height - toolbarHeight,
   });
 }
 
