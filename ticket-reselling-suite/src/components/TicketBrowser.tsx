@@ -45,11 +45,11 @@ declare global {
 }
 
 const QUICK_LINKS = [
-  { label: "StubHub", url: "https://www.stubhub.com", color: "bg-purple-600" },
-  { label: "Ticketmaster", url: "https://www.ticketmaster.com", color: "bg-blue-600" },
-  { label: "VividSeats", url: "https://www.vividseats.com", color: "bg-green-600" },
-  { label: "SeatGeek", url: "https://seatgeek.com", color: "bg-orange-600" },
-  { label: "Etix", url: "https://www.etix.com", color: "bg-red-600" },
+  { label: "StubHub", url: "https://www.stubhub.com", color: "#7C3AED" },
+  { label: "Ticketmaster", url: "https://www.ticketmaster.com", color: "#2563EB" },
+  { label: "VividSeats", url: "https://www.vividseats.com", color: "#059669" },
+  { label: "SeatGeek", url: "https://seatgeek.com", color: "#EA580C" },
+  { label: "Etix", url: "https://www.etix.com", color: "#DC2626" },
 ];
 
 function fmt(n: number): string {
@@ -65,9 +65,7 @@ function computeStats(listings: CapturedData["listings"]) {
   const sum = prices.reduce((a, b) => a + b, 0);
   const mid = Math.floor(prices.length / 2);
   const median =
-    prices.length % 2 === 0
-      ? (prices[mid - 1] + prices[mid]) / 2
-      : prices[mid];
+    prices.length % 2 === 0 ? (prices[mid - 1] + prices[mid]) / 2 : prices[mid];
   return {
     getIn: prices[0],
     median: Math.round(median * 100) / 100,
@@ -87,7 +85,7 @@ export function TicketBrowser() {
   const [saved, setSaved] = useState(false);
   const api = typeof window !== "undefined" ? window.ticketOps : null;
 
-  // Listen for URL/loading changes — with proper cleanup
+  // Listen for URL/loading changes — with cleanup
   useEffect(() => {
     if (!api) return;
     const unsubUrl = api.onUrlChanged((newUrl: string) => {
@@ -104,7 +102,7 @@ export function TicketBrowser() {
     };
   }, [api]);
 
-  // Poll for captured data — recursive setTimeout to prevent queue-up
+  // Poll for captured data — recursive setTimeout
   const pollingRef = useRef(false);
   useEffect(() => {
     if (!isOpen || !api) return;
@@ -149,7 +147,9 @@ export function TicketBrowser() {
     };
 
     setTimeout(poll, 1000);
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, api]);
 
   const navigate = useCallback(
@@ -173,21 +173,19 @@ export function TicketBrowser() {
 
   const closeBrowser = useCallback(async () => {
     if (!api) return;
-    // Save current data to history before closing
     if (data && data.count > 0) {
-      const stats = computeStats(data.listings);
-      if (stats) {
+      const s = computeStats(data.listings);
+      if (s) {
         setHistory((h) => {
-          const exists = h.some((e) => e.url === data.url);
-          if (exists) return h;
+          if (h.some((e) => e.url === data.url)) return h;
           return [
             {
               eventName: data.eventName,
               platform: data.platform,
               url: data.url,
-              getIn: stats.getIn,
-              median: stats.median,
-              total: stats.total,
+              getIn: s.getIn,
+              median: s.median,
+              total: s.total,
               time: new Date().toLocaleTimeString(),
             },
             ...h,
@@ -205,7 +203,6 @@ export function TicketBrowser() {
     if (!data || data.count === 0) return;
     const stats = computeStats(data.listings);
     if (!stats) return;
-
     await fetch("/api/snapshots", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -226,12 +223,13 @@ export function TicketBrowser() {
     return (
       <div className="card text-center py-16 space-y-4">
         <p className="text-2xl">🖥️</p>
-        <p className="text-slate-300 font-medium">
+        <p className="font-medium" style={{ color: "#2D2B28" }}>
           Built-in Browser requires the Desktop App
         </p>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm" style={{ color: "#8C8680" }}>
           Run with{" "}
-          <code className="text-sky-400">npm run electron:dev</code> to enable.
+          <code style={{ color: "#D97706" }}>npm run electron:dev</code> to
+          enable.
         </p>
       </div>
     );
@@ -239,7 +237,7 @@ export function TicketBrowser() {
 
   const stats = data ? computeStats(data.listings) : null;
 
-  // ─── Landing (no browser open) ─────────────────────────────────────
+  // ─── Landing ─────────────────────────────────────────────────────────
   if (!isOpen) {
     return (
       <div className="space-y-6">
@@ -249,15 +247,21 @@ export function TicketBrowser() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="Paste a ticket URL or search..."
-            className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:border-sky-500 focus:outline-none"
+            className="flex-1 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2"
+            style={{
+              border: "1px solid #E8E2DB",
+              backgroundColor: "#FFFFFF",
+              color: "#2D2B28",
+              focusRingColor: "#D97706",
+            }}
           />
-          <button type="submit" className="btn-primary px-6">
+          <button type="submit" className="btn-primary px-6 rounded-xl">
             Go
           </button>
         </form>
 
         <div>
-          <h3 className="text-sm font-medium text-slate-400 mb-3">
+          <h3 className="text-sm font-medium mb-3" style={{ color: "#8C8680" }}>
             Browse Ticket Sites
           </h3>
           <div className="grid grid-cols-5 gap-3">
@@ -265,7 +269,8 @@ export function TicketBrowser() {
               <button
                 key={link.label}
                 onClick={() => navigate(link.url)}
-                className={`${link.color} rounded-lg px-4 py-8 text-center text-white font-semibold hover:opacity-90 transition-opacity text-lg`}
+                className="rounded-xl px-4 py-8 text-center text-white font-semibold text-lg transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]"
+                style={{ backgroundColor: link.color }}
               >
                 {link.label}
               </button>
@@ -273,32 +278,37 @@ export function TicketBrowser() {
           </div>
         </div>
 
-        {/* Show history from previous browsing */}
         {history.length > 0 && (
           <div>
-            <h3 className="text-sm font-medium text-slate-400 mb-3">
+            <h3
+              className="text-sm font-medium mb-3"
+              style={{ color: "#8C8680" }}
+            >
               Recent Scans
             </h3>
             <div className="space-y-2">
               {history.map((h, i) => (
                 <div
                   key={i}
-                  className="card flex items-center justify-between cursor-pointer hover:border-sky-500/50 transition-colors"
+                  className="card flex items-center justify-between cursor-pointer transition-all hover:shadow-md"
                   onClick={() => navigate(h.url)}
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">
+                    <p
+                      className="text-sm font-medium truncate"
+                      style={{ color: "#2D2B28" }}
+                    >
                       {h.eventName}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs" style={{ color: "#8C8680" }}>
                       {h.platform} · {h.total} listings · {h.time}
                     </p>
                   </div>
                   <div className="text-right shrink-0 ml-4">
-                    <p className="text-green-400 font-semibold">
+                    <p className="font-semibold" style={{ color: "#059669" }}>
                       {fmt(h.getIn)}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs" style={{ color: "#8C8680" }}>
                       med {fmt(h.median)}
                     </p>
                   </div>
@@ -309,7 +319,10 @@ export function TicketBrowser() {
         )}
 
         {history.length === 0 && (
-          <div className="card text-center py-12 text-slate-500">
+          <div
+            className="card text-center py-12"
+            style={{ color: "#8C8680" }}
+          >
             <p className="text-lg mb-2">Browse any ticket site above</p>
             <p className="text-sm">
               TicketOps captures pricing data in real-time as you browse.
@@ -322,39 +335,52 @@ export function TicketBrowser() {
     );
   }
 
-  // ─── Split-Screen: Browser (left) + Data Panel (right) ─────────────
+  // ─── Split-Screen ────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-[calc(100vh-112px)]">
-      {/* Browser Toolbar */}
-      <div className="flex items-center gap-2 bg-slate-900 border-b border-slate-700 px-3 py-2 shrink-0">
-        {/* Exit button — prominent red */}
+      {/* Browser Toolbar — always visible above BrowserView */}
+      <div
+        className="flex items-center gap-2 px-3 py-2 shrink-0"
+        style={{
+          backgroundColor: "#3D3929",
+          borderBottom: "1px solid #4A4539",
+        }}
+      >
+        {/* EXIT — large, always visible */}
         <button
           onClick={closeBrowser}
-          className="bg-red-600 hover:bg-red-500 text-white text-xs font-semibold px-3 py-1.5 rounded transition-colors"
+          className="text-white text-sm font-semibold px-4 py-2 rounded-lg transition-all hover:scale-105 active:scale-95"
+          style={{ backgroundColor: "#DC2626" }}
           title="Close browser and return to dashboard"
         >
-          ✕ Exit
+          ← Exit Browser
         </button>
 
-        <div className="w-px h-5 bg-slate-700 mx-1" />
+        <div
+          className="w-px h-6 mx-1"
+          style={{ backgroundColor: "#4A4539" }}
+        />
 
         <button
           onClick={() => api.back()}
-          className="text-slate-400 hover:text-white px-2 py-1 text-lg"
+          className="text-lg px-2 py-1 rounded transition-colors"
+          style={{ color: "#A89F91" }}
           title="Back"
         >
           ←
         </button>
         <button
           onClick={() => api.forward()}
-          className="text-slate-400 hover:text-white px-2 py-1 text-lg"
+          className="text-lg px-2 py-1 rounded transition-colors"
+          style={{ color: "#A89F91" }}
           title="Forward"
         >
           →
         </button>
         <button
           onClick={() => api.refresh()}
-          className="text-slate-400 hover:text-white px-2 py-1 text-lg"
+          className="text-lg px-2 py-1 rounded transition-colors"
+          style={{ color: "#A89F91" }}
           title="Refresh"
         >
           ↻
@@ -365,52 +391,83 @@ export function TicketBrowser() {
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            className="flex-1 rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-sky-500 focus:outline-none"
+            className="flex-1 rounded-lg px-3 py-1.5 text-sm focus:outline-none"
+            style={{
+              border: "1px solid #4A4539",
+              backgroundColor: "#2D2B28",
+              color: "#F5F0EB",
+            }}
           />
         </form>
 
         {loading && (
-          <span className="text-sky-400 text-xs animate-pulse">
+          <span className="text-xs animate-pulse" style={{ color: "#F59E0B" }}>
             Loading...
           </span>
         )}
       </div>
 
-      {/* Split: BrowserView (left, rendered by Electron) + Data Panel (right) */}
+      {/* Split: BrowserView (left) + Data Panel (right) */}
       <div className="flex flex-1 overflow-hidden">
-        {/* BrowserView takes up left side — Electron renders it here */}
-        <div className="flex-1 bg-slate-950" />
+        {/* BrowserView placeholder — Electron renders the real browser here */}
+        <div className="flex-1" style={{ backgroundColor: "#F5F0EB" }} />
 
-        {/* Data Panel — always visible on right side */}
-        <div className="w-[380px] shrink-0 border-l border-slate-700 bg-slate-900 flex flex-col overflow-hidden">
+        {/* Data Panel */}
+        <div
+          className="w-[380px] shrink-0 flex flex-col overflow-hidden"
+          style={{
+            borderLeft: "1px solid #E8E2DB",
+            backgroundColor: "#FFFFFF",
+          }}
+        >
           {/* Panel tabs */}
-          <div className="flex border-b border-slate-700 shrink-0">
+          <div
+            className="flex shrink-0"
+            style={{ borderBottom: "1px solid #E8E2DB" }}
+          >
             <button
               onClick={() => setDataTab("live")}
-              className={`flex-1 py-2.5 text-xs font-medium transition-colors ${
-                dataTab === "live"
-                  ? "text-sky-400 border-b-2 border-sky-400 bg-slate-800/50"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
+              className="flex-1 py-2.5 text-xs font-medium transition-colors"
+              style={{
+                color: dataTab === "live" ? "#D97706" : "#8C8680",
+                borderBottom:
+                  dataTab === "live" ? "2px solid #D97706" : "2px solid transparent",
+                backgroundColor:
+                  dataTab === "live" ? "rgba(217, 119, 6, 0.05)" : "transparent",
+              }}
             >
               Live Data{" "}
               {data && data.count > 0 && (
-                <span className="ml-1 bg-sky-600 text-white px-1.5 py-0.5 rounded-full text-[10px]">
+                <span
+                  className="ml-1 text-white px-1.5 py-0.5 rounded-full text-[10px]"
+                  style={{ backgroundColor: "#D97706" }}
+                >
                   {data.count}
                 </span>
               )}
             </button>
             <button
               onClick={() => setDataTab("history")}
-              className={`flex-1 py-2.5 text-xs font-medium transition-colors ${
-                dataTab === "history"
-                  ? "text-sky-400 border-b-2 border-sky-400 bg-slate-800/50"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
+              className="flex-1 py-2.5 text-xs font-medium transition-colors"
+              style={{
+                color: dataTab === "history" ? "#D97706" : "#8C8680",
+                borderBottom:
+                  dataTab === "history" ? "2px solid #D97706" : "2px solid transparent",
+                backgroundColor:
+                  dataTab === "history"
+                    ? "rgba(217, 119, 6, 0.05)"
+                    : "transparent",
+              }}
             >
               History{" "}
               {history.length > 0 && (
-                <span className="ml-1 bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded-full text-[10px]">
+                <span
+                  className="ml-1 px-1.5 py-0.5 rounded-full text-[10px]"
+                  style={{
+                    backgroundColor: "#E8E2DB",
+                    color: "#4A4845",
+                  }}
+                >
                   {history.length}
                 </span>
               )}
@@ -421,9 +478,11 @@ export function TicketBrowser() {
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {dataTab === "live" && (
               <>
-                {/* No data yet */}
                 {(!data || data.count === 0) && (
-                  <div className="text-center py-12 text-slate-500">
+                  <div
+                    className="text-center py-12"
+                    style={{ color: "#8C8680" }}
+                  >
                     <p className="text-3xl mb-3">📊</p>
                     <p className="text-sm">
                       Browse to an event page
@@ -433,69 +492,77 @@ export function TicketBrowser() {
                   </div>
                 )}
 
-                {/* Live data */}
                 {data && data.count > 0 && stats && (
                   <>
-                    {/* Event header */}
                     <div>
-                      <p className="text-sm font-semibold text-slate-200 truncate">
+                      <p
+                        className="text-sm font-semibold truncate"
+                        style={{ color: "#2D2B28" }}
+                      >
                         {data.eventName}
                       </p>
-                      <p className="text-xs text-slate-500">{data.platform}</p>
+                      <p className="text-xs" style={{ color: "#8C8680" }}>
+                        {data.platform}
+                      </p>
                     </div>
 
-                    {/* Save button */}
                     <button
                       onClick={saveSnapshot}
                       disabled={saved}
-                      className={`w-full text-xs font-medium py-2 rounded transition-colors ${
-                        saved
-                          ? "bg-green-600/20 text-green-400 cursor-default"
-                          : "bg-sky-600 text-white hover:bg-sky-500"
-                      }`}
+                      className="w-full text-xs font-medium py-2 rounded-lg transition-all"
+                      style={{
+                        backgroundColor: saved ? "rgba(5, 150, 105, 0.1)" : "#D97706",
+                        color: saved ? "#059669" : "#FFFFFF",
+                        cursor: saved ? "default" : "pointer",
+                      }}
                     >
                       {saved ? "✓ Saved to Database" : "Save Snapshot"}
                     </button>
 
-                    {/* Stats grid */}
                     <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-lg bg-slate-800 p-3">
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-                          Get-in
-                        </p>
-                        <p className="text-lg font-bold text-green-400">
-                          {fmt(stats.getIn)}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3">
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-                          Median
-                        </p>
-                        <p className="text-lg font-bold">{fmt(stats.median)}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3">
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-                          Average
-                        </p>
-                        <p className="text-lg font-bold">{fmt(stats.avg)}</p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800 p-3">
-                        <p className="text-[10px] text-slate-500 uppercase tracking-wider">
-                          Listings
-                        </p>
-                        <p className="text-lg font-bold">{stats.total}</p>
-                      </div>
+                      {[
+                        { label: "Get-in", value: fmt(stats.getIn), accent: true },
+                        { label: "Median", value: fmt(stats.median) },
+                        { label: "Average", value: fmt(stats.avg) },
+                        { label: "Listings", value: String(stats.total) },
+                      ].map((s) => (
+                        <div
+                          key={s.label}
+                          className="rounded-lg p-3"
+                          style={{ backgroundColor: "#FAF9F6" }}
+                        >
+                          <p
+                            className="text-[10px] uppercase tracking-wider"
+                            style={{ color: "#8C8680" }}
+                          >
+                            {s.label}
+                          </p>
+                          <p
+                            className="text-lg font-bold"
+                            style={{ color: s.accent ? "#059669" : "#2D2B28" }}
+                          >
+                            {s.value}
+                          </p>
+                        </div>
+                      ))}
                     </div>
 
-                    {/* Listings table */}
                     <div>
-                      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">
+                      <p
+                        className="text-[10px] uppercase tracking-wider mb-2"
+                        style={{ color: "#8C8680" }}
+                      >
                         All Listings (sorted by price)
                       </p>
                       <div className="overflow-y-auto max-h-[calc(100vh-520px)]">
                         <table className="w-full text-xs">
-                          <thead className="sticky top-0 bg-slate-900">
-                            <tr className="border-b border-slate-700 text-slate-500">
+                          <thead className="sticky top-0" style={{ backgroundColor: "#FFFFFF" }}>
+                            <tr
+                              style={{
+                                borderBottom: "1px solid #E8E2DB",
+                                color: "#8C8680",
+                              }}
+                            >
                               <th className="text-left py-1.5 pr-1">Sec</th>
                               <th className="text-left py-1.5 pr-1">Row</th>
                               <th className="text-right py-1.5 pr-1">Price</th>
@@ -509,32 +576,39 @@ export function TicketBrowser() {
                               .map((l, i) => (
                                 <tr
                                   key={i}
-                                  className="border-b border-slate-800/50 hover:bg-slate-800/30"
+                                  className="transition-colors"
+                                  style={{
+                                    borderBottom: "1px solid #F5F0EB",
+                                  }}
                                 >
-                                  <td className="py-1 pr-1 truncate max-w-[80px]">
+                                  <td className="py-1.5 pr-1 truncate max-w-[80px]">
                                     {l.section || "—"}
                                   </td>
-                                  <td className="py-1 pr-1">
-                                    {l.row || "—"}
-                                  </td>
-                                  <td className="py-1 pr-1 text-right font-mono">
+                                  <td className="py-1.5 pr-1">{l.row || "—"}</td>
+                                  <td className="py-1.5 pr-1 text-right font-mono">
                                     {i === 0 ? (
-                                      <span className="text-green-400 font-semibold">
+                                      <span
+                                        className="font-semibold"
+                                        style={{ color: "#059669" }}
+                                      >
                                         {fmt(l.price)}
                                       </span>
                                     ) : (
-                                      fmt(l.price)
+                                      <span style={{ color: "#2D2B28" }}>
+                                        {fmt(l.price)}
+                                      </span>
                                     )}
                                   </td>
-                                  <td className="py-1 text-right">
-                                    {l.quantity}
-                                  </td>
+                                  <td className="py-1.5 text-right">{l.quantity}</td>
                                 </tr>
                               ))}
                           </tbody>
                         </table>
                         {data.count > 200 && (
-                          <p className="text-[10px] text-slate-600 text-center mt-1">
+                          <p
+                            className="text-[10px] text-center mt-1"
+                            style={{ color: "#8C8680" }}
+                          >
                             Showing 200 of {data.count}
                           </p>
                         )}
@@ -548,37 +622,45 @@ export function TicketBrowser() {
             {dataTab === "history" && (
               <>
                 {history.length === 0 && (
-                  <div className="text-center py-12 text-slate-500">
-                    <p className="text-sm">
-                      Events you browse will appear here
-                    </p>
+                  <div
+                    className="text-center py-12 text-sm"
+                    style={{ color: "#8C8680" }}
+                  >
+                    Events you browse will appear here
                   </div>
                 )}
                 {history.map((h, i) => (
                   <div
                     key={i}
-                    className="rounded-lg bg-slate-800 p-3 cursor-pointer hover:bg-slate-700/80 transition-colors"
+                    className="rounded-lg p-3 cursor-pointer transition-all hover:shadow-sm"
+                    style={{ backgroundColor: "#FAF9F6" }}
                     onClick={() => navigate(h.url)}
                   >
-                    <p className="text-sm font-medium truncate">
+                    <p
+                      className="text-sm font-medium truncate"
+                      style={{ color: "#2D2B28" }}
+                    >
                       {h.eventName}
                     </p>
-                    <p className="text-xs text-slate-500 mt-0.5">
+                    <p className="text-xs mt-0.5" style={{ color: "#8C8680" }}>
                       {h.platform} · {h.time}
                     </p>
                     <div className="flex gap-4 mt-2 text-xs">
                       <span>
-                        <span className="text-slate-500">Get-in: </span>
-                        <span className="text-green-400 font-semibold">
+                        <span style={{ color: "#8C8680" }}>Get-in: </span>
+                        <span
+                          className="font-semibold"
+                          style={{ color: "#059669" }}
+                        >
                           {fmt(h.getIn)}
                         </span>
                       </span>
                       <span>
-                        <span className="text-slate-500">Med: </span>
+                        <span style={{ color: "#8C8680" }}>Med: </span>
                         <span className="font-medium">{fmt(h.median)}</span>
                       </span>
                       <span>
-                        <span className="text-slate-500">Listings: </span>
+                        <span style={{ color: "#8C8680" }}>Listings: </span>
                         <span className="font-medium">{h.total}</span>
                       </span>
                     </div>

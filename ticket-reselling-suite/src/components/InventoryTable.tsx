@@ -34,9 +34,9 @@ interface InventoryTableProps {
 }
 
 function formatCurrency(n: number | string | null): string {
-  if (n === null || n === undefined) return "—";
+  if (n === null || n === undefined) return "\u2014";
   const num = typeof n === "string" ? parseFloat(n) : n;
-  if (isNaN(num)) return "—";
+  if (isNaN(num)) return "\u2014";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -54,7 +54,7 @@ function formatDate(d: string): string {
 export function InventoryTable({ items, onRecordSale }: InventoryTableProps) {
   if (items.length === 0) {
     return (
-      <div className="card text-center py-12 text-slate-400">
+      <div className="card text-center py-12 text-warm-500">
         No inventory items yet. Add your first tickets to get started.
       </div>
     );
@@ -64,7 +64,7 @@ export function InventoryTable({ items, onRecordSale }: InventoryTableProps) {
     <div className="card overflow-x-auto p-0">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-700 text-left text-xs uppercase text-slate-400">
+          <tr className="border-b border-warm-200 text-left text-xs uppercase text-warm-500">
             <th className="px-4 py-3">Event</th>
             <th className="px-4 py-3">Date</th>
             <th className="px-4 py-3">Section</th>
@@ -93,10 +93,10 @@ export function InventoryTable({ items, onRecordSale }: InventoryTableProps) {
 
             return (
               <tr key={item.id} className="table-row">
-                <td className="px-4 py-3 font-medium max-w-[200px] truncate">
+                <td className="px-4 py-3 font-medium max-w-[200px] truncate text-warm-900">
                   {item.event.name}
                 </td>
-                <td className="px-4 py-3 text-slate-400 whitespace-nowrap">
+                <td className="px-4 py-3 text-warm-500 whitespace-nowrap">
                   {formatDate(item.event.eventDate)}
                 </td>
                 <td className="px-4 py-3">
@@ -113,8 +113,8 @@ export function InventoryTable({ items, onRecordSale }: InventoryTableProps) {
                     <span
                       className={`ml-1 text-xs ${
                         parseFloat(margin) >= 0
-                          ? "text-green-400"
-                          : "text-red-400"
+                          ? "text-green-600"
+                          : "text-red-600"
                       }`}
                     >
                       ({margin}%)
@@ -122,7 +122,7 @@ export function InventoryTable({ items, onRecordSale }: InventoryTableProps) {
                   )}
                 </td>
                 <td className="px-4 py-3 text-xs">
-                  {item.listPlatform ?? "—"}
+                  {item.listPlatform ?? "\u2014"}
                 </td>
                 <td className="px-4 py-3">
                   <span className={STATUS_BADGES[item.status] ?? "badge-gray"}>
@@ -133,13 +133,13 @@ export function InventoryTable({ items, onRecordSale }: InventoryTableProps) {
                   {item.status === "LISTED" && (
                     <button
                       onClick={() => onRecordSale(item.id)}
-                      className="text-xs text-sky-400 hover:text-sky-300"
+                      className="text-xs text-brand-500 hover:text-brand-600 font-medium"
                     >
                       Record Sale
                     </button>
                   )}
                   {item.status === "PENDING_REMOVAL" && (
-                    <span className="text-xs text-red-400 font-semibold animate-pulse">
+                    <span className="text-xs text-red-600 font-semibold animate-pulse">
                       DE-LIST NOW
                     </span>
                   )}

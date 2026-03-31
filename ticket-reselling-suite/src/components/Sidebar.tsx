@@ -23,18 +23,33 @@ export function Sidebar({ activeTab, onTabChange, alertCount }: SidebarProps) {
 
   return (
     <aside
-      className={`flex flex-col border-r border-slate-700 bg-slate-900 transition-all ${
+      className={`flex flex-col border-r transition-all ${
         collapsed ? "w-16" : "w-56"
       }`}
+      style={{
+        backgroundColor: "#3D3929",
+        borderColor: "#4A4539",
+      }}
     >
       {/* Header */}
-      <div className="flex h-16 items-center justify-between px-4 border-b border-slate-700">
+      <div
+        className="flex h-16 items-center justify-between px-4 border-b"
+        style={{ borderColor: "#4A4539" }}
+      >
         {!collapsed && (
-          <span className="text-lg font-bold text-sky-400">TicketOps</span>
+          <span
+            className="text-lg font-bold"
+            style={{ color: "#F59E0B" }}
+          >
+            TicketOps
+          </span>
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="text-slate-400 hover:text-white"
+          className="transition-colors"
+          style={{ color: "#A89F91" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "#F5F0EB")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "#A89F91")}
         >
           {collapsed ? "→" : "←"}
         </button>
@@ -48,9 +63,32 @@ export function Sidebar({ activeTab, onTabChange, alertCount }: SidebarProps) {
             onClick={() => onTabChange(item.id)}
             className={`flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
               activeTab === item.id
-                ? "bg-sky-600/20 text-sky-400 border-r-2 border-sky-400"
-                : "text-slate-400 hover:text-white hover:bg-slate-800"
+                ? "border-r-2"
+                : ""
             }`}
+            style={
+              activeTab === item.id
+                ? {
+                    backgroundColor: "rgba(245, 158, 11, 0.15)",
+                    color: "#F59E0B",
+                    borderColor: "#F59E0B",
+                  }
+                : {
+                    color: "#A89F91",
+                  }
+            }
+            onMouseEnter={(e) => {
+              if (activeTab !== item.id) {
+                e.currentTarget.style.color = "#F5F0EB";
+                e.currentTarget.style.backgroundColor = "rgba(245, 240, 235, 0.08)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (activeTab !== item.id) {
+                e.currentTarget.style.color = "#A89F91";
+                e.currentTarget.style.backgroundColor = "transparent";
+              }
+            }}
           >
             <span className="text-base">{item.icon}</span>
             {!collapsed && (

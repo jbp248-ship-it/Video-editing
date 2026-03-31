@@ -89,7 +89,7 @@ function waitForServer(retries = 240) {
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400, height: 900, minWidth: 1024, minHeight: 700,
-    title: "TicketOps", backgroundColor: "#0f172a",
+    title: "TicketOps", backgroundColor: "#FAF9F6",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -100,8 +100,8 @@ function createWindow() {
 
   mainWindow.loadURL(`http://localhost:${PORT}`);
   mainWindow.once("ready-to-show", () => mainWindow.show());
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+  // Keep links within the app — don't open external browser
+  mainWindow.webContents.setWindowOpenHandler(() => {
     return { action: "deny" };
   });
   mainWindow.on("closed", () => { mainWindow = null; });
@@ -111,16 +111,17 @@ function createWindow() {
 // ─── Embedded Browser (BrowserView) ────────────────────────────────────
 
 const DATA_PANEL_WIDTH = 380;
-const TOOLBAR_HEIGHT = 44;
+// Dashboard header (64px) + browser toolbar (48px) = 112px from window top
+const BROWSER_TOP_OFFSET = 112;
 
 function resizeBrowserView() {
   if (!ticketBrowserView || !mainWindow) return;
   const bounds = mainWindow.getContentBounds();
   ticketBrowserView.setBounds({
     x: sidebarWidth,
-    y: TOOLBAR_HEIGHT,
+    y: BROWSER_TOP_OFFSET,
     width: Math.max(300, bounds.width - sidebarWidth - DATA_PANEL_WIDTH),
-    height: bounds.height - TOOLBAR_HEIGHT,
+    height: Math.max(200, bounds.height - BROWSER_TOP_OFFSET),
   });
 }
 
@@ -155,6 +156,18 @@ function createBrowserView(url) {
   });
   wc.on("did-start-loading", () => mainWindow?.webContents.send("browser-loading", true));
   wc.on("did-stop-loading", () => mainWindow?.webContents.send("browser-loading", false));
+
+  // Keep ALL navigation inside the BrowserView — never open external browsers
+  wc.setWindowOpenHandler(({ url: newUrl }) => {
+    // Navigate the BrowserView itself instead of opening a new window
+    wc.loadURL(newUrl);
+    return { action: "deny" };
+  });
+
+  // Also intercept window.open / target="_blank" via will-navigate
+  wc.on("will-navigate", (event, navUrl) => {
+    // Allow navigation within the BrowserView — do nothing to block it
+  });
 
   wc.loadURL(url);
 }

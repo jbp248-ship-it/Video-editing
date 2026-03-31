@@ -125,7 +125,7 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-warm-50">
       <Sidebar
         activeTab={activeTab}
         onTabChange={setActiveTab}
@@ -134,15 +134,15 @@ export default function DashboardPage() {
 
       <main className="flex-1 overflow-y-auto">
         {/* Top Bar */}
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-slate-700 bg-slate-900/80 backdrop-blur px-6">
-          <h1 className="text-lg font-semibold capitalize">
+        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-warm-200 bg-white/80 backdrop-blur px-6">
+          <h1 className="text-lg font-semibold capitalize text-warm-900">
             {activeTab === "market" ? "Market Scanner" : activeTab === "browse" ? "Browse Ticket Sites" : activeTab}
           </h1>
           <div className="flex items-center gap-4">
             <input
               type="text"
               placeholder="Search events..."
-              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-300 placeholder-slate-500 focus:border-sky-500 focus:outline-none w-64"
+              className="rounded-lg border border-warm-200 bg-warm-50 px-3 py-1.5 text-sm text-warm-700 placeholder-warm-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20 w-64"
             />
             <button className="btn-primary">+ Add Tickets</button>
           </div>
@@ -151,12 +151,12 @@ export default function DashboardPage() {
         <div className="p-6 space-y-6">
           {/* Error Banner */}
           {fetchError && (
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm text-red-400">
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm text-red-700">
                 Failed to load data: {fetchError}
               </span>
               <button
-                className="text-xs text-red-300 hover:text-white"
+                className="text-xs text-red-500 hover:text-red-700"
                 onClick={fetchData}
               >
                 Retry
@@ -164,7 +164,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ─── Dashboard View ──────────────────────────────── */}
+          {/* Dashboard View */}
           {activeTab === "dashboard" && (
             <>
               <StatsGrid stats={stats} />
@@ -172,7 +172,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Alerts panel */}
                 <div className="lg:col-span-1">
-                  <h2 className="text-sm font-medium text-slate-400 mb-3">
+                  <h2 className="text-sm font-medium text-warm-500 mb-3">
                     Active Alerts
                   </h2>
                   <AlertPanel
@@ -184,7 +184,7 @@ export default function DashboardPage() {
 
                 {/* Price trend */}
                 <div className="lg:col-span-2">
-                  <h2 className="text-sm font-medium text-slate-400 mb-3">
+                  <h2 className="text-sm font-medium text-warm-500 mb-3">
                     Market Overview
                   </h2>
                   <PriceTrendChart data={snapshots} />
@@ -194,7 +194,7 @@ export default function DashboardPage() {
               {/* Quick inventory view */}
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-medium text-slate-400">
+                  <h2 className="text-sm font-medium text-warm-500">
                     Active Inventory
                   </h2>
                   <button
@@ -212,7 +212,7 @@ export default function DashboardPage() {
             </>
           )}
 
-          {/* ─── Inventory View ─────────────────────────────── */}
+          {/* Inventory View */}
           {activeTab === "inventory" && (
             <>
               <div className="flex items-center gap-3 mb-4">
@@ -231,20 +231,20 @@ export default function DashboardPage() {
             </>
           )}
 
-          {/* ─── Sales View ─────────────────────────────────── */}
+          {/* Sales View */}
           {activeTab === "sales" && (
-            <div className="card text-center py-12 text-slate-400">
+            <div className="card text-center py-12 text-warm-500">
               Sales history will appear here once you record your first sale.
             </div>
           )}
 
-          {/* ─── Browse Sites View ──────────────────────────── */}
+          {/* Browse Sites View */}
           {activeTab === "browse" && <TicketBrowser />}
 
-          {/* ─── Market Scanner View ──────────────────────────── */}
+          {/* Market Scanner View */}
           {activeTab === "market" && <MarketScanner />}
 
-          {/* ─── Alerts View ────────────────────────────────── */}
+          {/* Alerts View */}
           {activeTab === "alerts" && (
             <AlertPanel
               alerts={alerts}
@@ -253,11 +253,11 @@ export default function DashboardPage() {
             />
           )}
 
-          {/* ─── Settings View ──────────────────────────────── */}
+          {/* Settings View */}
           {activeTab === "settings" && (
             <div className="card max-w-2xl space-y-6">
-              <h2 className="text-lg font-semibold">Fee Configuration</h2>
-              <p className="text-sm text-slate-400">
+              <h2 className="text-lg font-semibold text-warm-900">Fee Configuration</h2>
+              <p className="text-sm text-warm-500">
                 Adjust platform fee percentages to match your seller tier.
               </p>
               <div className="space-y-3">
@@ -270,10 +270,10 @@ export default function DashboardPage() {
                 ].map((p) => (
                   <div
                     key={p.name}
-                    className="flex items-center justify-between py-2 border-b border-slate-700"
+                    className="flex items-center justify-between py-2 border-b border-warm-200"
                   >
-                    <span className="font-medium">{p.name}</span>
-                    <span className="text-sm text-slate-400">{p.fee}</span>
+                    <span className="font-medium text-warm-900">{p.name}</span>
+                    <span className="text-sm text-warm-500">{p.fee}</span>
                   </div>
                 ))}
               </div>
@@ -282,16 +282,16 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* ─── Record Sale Modal ──────────────────────────── */}
+      {/* Record Sale Modal */}
       {saleModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="card w-96 space-y-4">
-            <h2 className="text-lg font-semibold">Record Sale</h2>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-warm-900/40 backdrop-blur-sm">
+          <div className="card w-96 space-y-4 shadow-warm-lg">
+            <h2 className="text-lg font-semibold text-warm-900">Record Sale</h2>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-slate-400">Platform</label>
+                <label className="text-xs text-warm-500">Platform</label>
                 <select
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 mt-1"
+                  className="w-full rounded-lg border border-warm-200 bg-warm-50 px-3 py-2 text-sm text-warm-700 mt-1 focus:border-brand-500 focus:outline-none"
                   value={saleForm.platform}
                   onChange={(e) =>
                     setSaleForm({ ...saleForm, platform: e.target.value })
@@ -307,14 +307,14 @@ export default function DashboardPage() {
                 </select>
               </div>
               <div>
-                <label className="text-xs text-slate-400">
+                <label className="text-xs text-warm-500">
                   Sale Price (per ticket)
                 </label>
                 <input
                   type="number"
                   step="0.01"
                   min="0.01"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 mt-1"
+                  className="w-full rounded-lg border border-warm-200 bg-warm-50 px-3 py-2 text-sm text-warm-700 mt-1 focus:border-brand-500 focus:outline-none"
                   placeholder="$0.00"
                   value={saleForm.price}
                   onChange={(e) =>
@@ -324,11 +324,11 @@ export default function DashboardPage() {
                 />
               </div>
               <div>
-                <label className="text-xs text-slate-400">Quantity Sold</label>
+                <label className="text-xs text-warm-500">Quantity Sold</label>
                 <input
                   type="number"
                   min="1"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 mt-1"
+                  className="w-full rounded-lg border border-warm-200 bg-warm-50 px-3 py-2 text-sm text-warm-700 mt-1 focus:border-brand-500 focus:outline-none"
                   value={saleForm.qty}
                   onChange={(e) =>
                     setSaleForm({ ...saleForm, qty: e.target.value })
