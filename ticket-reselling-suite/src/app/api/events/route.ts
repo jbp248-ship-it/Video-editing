@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
 
   const where: Record<string, unknown> = {};
   if (search) {
-    where.name = { contains: search, mode: "insensitive" };
+    where.name = { contains: search };
   }
 
   const events = await prisma.event.findMany({

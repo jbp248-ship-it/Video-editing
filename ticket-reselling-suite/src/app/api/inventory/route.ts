@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   if (status) where.status = status;
   if (platform) where.listPlatform = platform;
   if (search) {
-    where.event = { name: { contains: search, mode: "insensitive" } };
+    where.event = { name: { contains: search } };
   }
 
   const inventory = await prisma.inventory.findMany({
@@ -68,10 +68,10 @@ export async function POST(req: NextRequest) {
       seatTo: data.seatTo,
       quantity,
       purchasePrice: data.purchasePrice,
-      purchasePlatform: data.purchasePlatform as never,
+      purchasePlatform: data.purchasePlatform,
       listPrice: data.listPrice,
-      listPlatform: data.listPlatform as never,
-      status: (data.status as never) ?? "IN_HAND",
+      listPlatform: data.listPlatform,
+      status: data.status ?? "IN_HAND",
       notes: data.notes,
     },
     include: { event: true },

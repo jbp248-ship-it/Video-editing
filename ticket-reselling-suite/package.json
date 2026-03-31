@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "setup": "npx prisma generate && npx prisma db push",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",

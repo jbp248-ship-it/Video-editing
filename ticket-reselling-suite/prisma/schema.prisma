@@ -3,35 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-// ─── Core Enums ──────────────────────────────────────────────────────────────
-
-enum Platform {
-  STUBHUB
-  TICKETMASTER
-  VIVID_SEATS
-  SEATGEEK
-  OTHER
-}
-
-enum TicketStatus {
-  IN_HAND          // Ticket acquired, not yet listed
-  LISTED           // Active listing on a platform
-  PENDING_SALE     // Sale detected, awaiting confirmation
-  SOLD             // Sale confirmed
-  PENDING_REMOVAL  // Sold elsewhere — URGENTLY de-list from other platforms
-  TRANSFERRED      // Ticket transferred to buyer
-  EXPIRED          // Event passed, unsold
-}
-
-enum SaleSource {
-  MANUAL           // Manually entered
-  EMAIL_PARSED     // Auto-detected from email
-  WEBHOOK          // Platform webhook/API
-  EXTENSION        // Chrome extension detection
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 // ─── Events ──────────────────────────────────────────────────────────────────
@@ -43,12 +16,12 @@ model Event {
   city        String?
   state       String?
   eventDate   DateTime
-  category    String?  // e.g., "Concert", "Sports", "Theater"
+  category    String?
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  inventory      Inventory[]
+  inventory       Inventory[]
   marketSnapshots MarketSnapshot[]
 
   @@index([eventDate])
@@ -58,29 +31,29 @@ model Event {
 // ─── Inventory (Your Tickets) ────────────────────────────────────────────────
 
 model Inventory {
-  id              String       @id @default(cuid())
-  eventId         String
-  event           Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
+  eventId          String
+  event            Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  section         String
-  row             String
-  seatFrom        Int
-  seatTo          Int
-  quantity        Int          @default(1)
+  section          String
+  row              String
+  seatFrom         Int
+  seatTo           Int
+  quantity         Int      @default(1)
 
-  purchasePrice   Decimal      @db.Decimal(10, 2) // Total cost for this lot
-  purchasePlatform Platform?
-  purchaseDate    DateTime     @default(now())
+  purchasePrice    Float
+  purchasePlatform String?
+  purchaseDate     DateTime @default(now())
 
-  listPrice       Decimal?     @db.Decimal(10, 2) // Current asking price per ticket
-  listPlatform    Platform?
-  status          TicketStatus @default(IN_HAND)
+  listPrice        Float?
+  listPlatform     String?
+  status           String   @default("IN_HAND")
 
-  notes           String?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  sales           Sale[]
+  sales            Sale[]
 
   @@index([eventId])
   @@index([status])
@@ -90,25 +63,25 @@ model Inventory {
 // ─── Sales ───────────────────────────────────────────────────────────────────
 
 model Sale {
-  id              String     @id @default(cuid())
-  inventoryId     String
-  inventory       Inventory  @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
+  id             String    @id @default(cuid())
+  inventoryId    String
+  inventory      Inventory @relation(fields: [inventoryId], references: [id], onDelete: Cascade)
 
-  platform        Platform
-  salePrice       Decimal    @db.Decimal(10, 2) // Gross sale price per ticket
-  quantitySold    Int        @default(1)
-  platformFee     Decimal    @db.Decimal(10, 2) // Calculated platform fee
-  processingFee   Decimal    @db.Decimal(10, 2) @default(0) // Additional processing fees
-  netRevenue      Decimal    @db.Decimal(10, 2) // salePrice * qty - platformFee - processingFee
-  netProfit       Decimal    @db.Decimal(10, 2) // netRevenue - (purchasePrice / totalQty * qtySold)
+  platform       String
+  salePrice      Float
+  quantitySold   Int       @default(1)
+  platformFee    Float
+  processingFee  Float     @default(0)
+  netRevenue     Float
+  netProfit      Float
 
-  saleDate        DateTime   @default(now())
-  source          SaleSource @default(MANUAL)
-  rawEmailData    String?    // Store original email text for audit trail
-  confirmed       Boolean    @default(false)
+  saleDate       DateTime  @default(now())
+  source         String    @default("MANUAL")
+  rawEmailData   String?
+  confirmed      Boolean   @default(false)
 
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([inventoryId])
   @@index([platform])
@@ -116,57 +89,41 @@ model Sale {
 }
 
 // ─── Market Snapshots (Price Intelligence) ───────────────────────────────────
-// Strategy: Store hourly snapshots for 7 days, then roll up to daily aggregates.
-// A scheduled job compacts old rows: DELETE WHERE granularity='HOURLY' AND capturedAt < now() - 7d
-
-enum SnapshotGranularity {
-  HOURLY
-  DAILY
-}
 
 model MarketSnapshot {
-  id              String              @id @default(cuid())
-  eventId         String
-  event           Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  id            String   @id @default(cuid())
+  eventId       String
+  event         Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  platform        Platform
-  section         String?             // Null = whole-event aggregate
-  getInPrice      Decimal             @db.Decimal(10, 2) // Cheapest available ticket
-  medianPrice     Decimal?            @db.Decimal(10, 2)
-  averagePrice    Decimal?            @db.Decimal(10, 2)
-  maxPrice        Decimal?            @db.Decimal(10, 2)
-  totalListings   Int                 // Number of active listings
-  totalTickets    Int?                // Total ticket count if available
+  platform      String
+  section       String?
+  getInPrice    Float
+  medianPrice   Float?
+  averagePrice  Float?
+  maxPrice      Float?
+  totalListings Int
+  totalTickets  Int?
 
-  granularity     SnapshotGranularity @default(HOURLY)
-  capturedAt      DateTime            @default(now())
+  granularity   String   @default("HOURLY")
+  capturedAt    DateTime @default(now())
 
   @@index([eventId, platform, capturedAt])
   @@index([capturedAt, granularity])
-  // Composite index for fast trend queries
   @@index([eventId, section, platform, capturedAt])
 }
 
 // ─── Alerts ──────────────────────────────────────────────────────────────────
 
-enum AlertType {
-  LOW_INVENTORY    // Few tickets left for an event you hold
-  HIGH_MARGIN      // Market price significantly above your cost basis
-  PRICE_DROP       // Get-in price dropped below threshold
-  DOUBLE_SELL_RISK // Ticket sold — de-list urgently
-  APPROACHING_EVENT // Event is within N days, unsold tickets remain
-}
-
 model Alert {
-  id          String    @id @default(cuid())
-  type        AlertType
+  id          String   @id @default(cuid())
+  type        String
   title       String
   message     String
   eventId     String?
   inventoryId String?
-  read        Boolean   @default(false)
-  dismissed   Boolean   @default(false)
-  createdAt   DateTime  @default(now())
+  read        Boolean  @default(false)
+  dismissed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
 
   @@index([read, dismissed])
   @@index([type])

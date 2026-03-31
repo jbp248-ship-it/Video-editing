@@ -1,5 +1,4 @@
 import { prisma } from "./db";
-import { TicketStatus, AlertType } from "@prisma/client";
 
 /**
  * Double-Sell Prevention: Locking Mechanism
@@ -28,7 +27,6 @@ export async function lockInventoryOnSale(
   inventoryId: string,
   sellingPlatform: string
 ): Promise<LockResult> {
-  // Fetch current inventory state
   const inventory = await prisma.inventory.findUniqueOrThrow({
     where: { id: inventoryId },
     include: { event: true },
@@ -36,22 +34,19 @@ export async function lockInventoryOnSale(
 
   const previousStatus = inventory.status;
 
-  // 1. Immediately mark as PENDING_REMOVAL
   await prisma.inventory.update({
     where: { id: inventoryId },
-    data: { status: TicketStatus.PENDING_REMOVAL },
+    data: { status: "PENDING_REMOVAL" },
   });
 
-  // 2. Determine which other platforms might have this listed
   const otherPlatformListings = getOtherPlatforms(
     sellingPlatform,
     inventory.listPlatform
   );
 
-  // 3. Create urgent alert
   const alert = await prisma.alert.create({
     data: {
-      type: AlertType.DOUBLE_SELL_RISK,
+      type: "DOUBLE_SELL_RISK",
       title: `URGENT: De-list ${inventory.event.name}`,
       message:
         `Sold on ${sellingPlatform}: ${inventory.section} Row ${inventory.row}, ` +
@@ -70,29 +65,20 @@ export async function lockInventoryOnSale(
   };
 }
 
-/**
- * Confirm the sale went through. Transitions from PENDING_REMOVAL to SOLD.
- */
 export async function confirmSale(inventoryId: string): Promise<void> {
   await prisma.inventory.update({
     where: { id: inventoryId },
-    data: { status: TicketStatus.SOLD },
+    data: { status: "SOLD" },
   });
 }
 
-/**
- * Cancel a false-positive sale detection. Restores to LISTED.
- */
 export async function cancelLock(inventoryId: string): Promise<void> {
   await prisma.inventory.update({
     where: { id: inventoryId },
-    data: { status: TicketStatus.LISTED },
+    data: { status: "LISTED" },
   });
 }
 
-/**
- * Determine other platforms where the ticket might be listed.
- */
 function getOtherPlatforms(
   sellingPlatform: string,
   currentListPlatform: string | null

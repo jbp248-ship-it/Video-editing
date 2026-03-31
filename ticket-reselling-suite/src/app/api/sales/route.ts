@@ -82,14 +82,14 @@ export async function POST(req: NextRequest) {
   const sale = await prisma.sale.create({
     data: {
       inventoryId: data.inventoryId,
-      platform: data.platform as never,
+      platform: data.platform,
       salePrice: data.salePrice,
       quantitySold: data.quantitySold,
       platformFee: profit.platformFee,
       processingFee: profit.processingFee,
       netRevenue: profit.netRevenue,
       netProfit: profit.netProfit,
-      source: data.source as never,
+      source: data.source,
       rawEmailData: data.rawEmailData,
     },
     include: { inventory: { include: { event: true } } },

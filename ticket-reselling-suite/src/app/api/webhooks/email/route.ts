@@ -38,10 +38,10 @@ export async function POST(req: NextRequest) {
   const matchedInventory = await prisma.inventory.findFirst({
     where: {
       status: "LISTED",
-      section: parsed.section ? { equals: parsed.section, mode: "insensitive" } : undefined,
-      row: parsed.row ? { equals: parsed.row, mode: "insensitive" } : undefined,
+      section: parsed.section ? { equals: parsed.section } : undefined,
+      row: parsed.row ? { equals: parsed.row } : undefined,
       event: {
-        name: { contains: parsed.eventName, mode: "insensitive" },
+        name: { contains: parsed.eventName },
       },
     },
     include: { event: true },
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   const sale = await prisma.sale.create({
     data: {
       inventoryId: matchedInventory.id,
-      platform: parsed.platform as never,
+      platform: parsed.platform,
       salePrice: parsed.salePrice,
       quantitySold: parsed.quantity,
       platformFee: profit.platformFee,

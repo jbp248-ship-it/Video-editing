@@ -7,13 +7,40 @@ export type {
   Alert,
 } from "@prisma/client";
 
-export {
-  Platform,
-  TicketStatus,
-  SaleSource,
-  SnapshotGranularity,
-  AlertType,
-} from "@prisma/client";
+// ─── String constants (SQLite doesn't support enums) ─────────────────────────
+
+export const Platform = {
+  STUBHUB: "STUBHUB",
+  TICKETMASTER: "TICKETMASTER",
+  VIVID_SEATS: "VIVID_SEATS",
+  SEATGEEK: "SEATGEEK",
+  OTHER: "OTHER",
+} as const;
+
+export const TicketStatus = {
+  IN_HAND: "IN_HAND",
+  LISTED: "LISTED",
+  PENDING_SALE: "PENDING_SALE",
+  SOLD: "SOLD",
+  PENDING_REMOVAL: "PENDING_REMOVAL",
+  TRANSFERRED: "TRANSFERRED",
+  EXPIRED: "EXPIRED",
+} as const;
+
+export const SaleSource = {
+  MANUAL: "MANUAL",
+  EMAIL_PARSED: "EMAIL_PARSED",
+  WEBHOOK: "WEBHOOK",
+  EXTENSION: "EXTENSION",
+} as const;
+
+export const AlertType = {
+  LOW_INVENTORY: "LOW_INVENTORY",
+  HIGH_MARGIN: "HIGH_MARGIN",
+  PRICE_DROP: "PRICE_DROP",
+  DOUBLE_SELL_RISK: "DOUBLE_SELL_RISK",
+  APPROACHING_EVENT: "APPROACHING_EVENT",
+} as const;
 
 // ─── Dashboard View Types ────────────────────────────────────────────────────
 
@@ -34,8 +61,8 @@ export interface InventoryWithEvent {
     venue: string;
     eventDate: string;
   };
-  costBasis: number;       // purchasePrice / quantity
-  marketPrice: number | null; // latest get-in price from snapshots
+  costBasis: number;
+  marketPrice: number | null;
   potentialProfit: number | null;
   marginPercent: number | null;
 }

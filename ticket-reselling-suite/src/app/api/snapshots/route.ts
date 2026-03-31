@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     const snapshot = await prisma.marketSnapshot.create({
       data: {
         eventId: data.eventId,
-        platform: data.platform as never,
+        platform: data.platform,
         section: data.section ?? null,
         getInPrice: data.getInPrice,
         medianPrice: data.medianPrice,
