@@ -226,21 +226,16 @@
   }
 
   function isTicketApiUrl(url) {
+    // Intercept broadly — we'll filter by response content, not URL
     if (!url) return false;
     const lower = url.toLowerCase();
-    return (
-      lower.includes("listing") ||
-      lower.includes("ticket") ||
-      lower.includes("offer") ||
-      lower.includes("inventory") ||
-      lower.includes("search") ||
-      lower.includes("event") ||
-      lower.includes("catalog") ||
-      lower.includes("price") ||
-      lower.includes("section") ||
-      lower.includes("/api/") ||
-      lower.includes("graphql")
-    );
+    // Skip obvious non-data URLs
+    if (lower.endsWith(".css") || lower.endsWith(".js") || lower.endsWith(".woff2")) return false;
+    if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".svg")) return false;
+    if (lower.includes("google") || lower.includes("facebook") || lower.includes("analytics")) return false;
+    if (lower.includes("doubleclick") || lower.includes("adsense")) return false;
+    // Accept everything else — API calls, tmol.co, stubhub internal, etc.
+    return true;
   }
 
   // Patch XMLHttpRequest
@@ -291,9 +286,11 @@
       document.querySelector("#content") ||
       document.body;
 
+    // Strategy A: Find text nodes with $XX patterns
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         const text = node.textContent?.trim() ?? "";
+        // Match "$56", "$1,250.00", "$ 56", "$56.00"
         if (/^\$\s?[\d,]+(?:\.\d{2})?$/.test(text)) return NodeFilter.FILTER_ACCEPT;
         return NodeFilter.FILTER_SKIP;
       },
@@ -315,7 +312,6 @@
 
       if (el.closest("header, footer, nav")) continue;
 
-      // Find section context
       const card =
         el.closest("li, tr, article, [role='listitem']") ??
         el.parentElement?.parentElement?.parentElement;
@@ -328,6 +324,66 @@
       }
 
       listings.push({ price, section });
+    }
+
+    // Strategy B: Find elements with aria-label or data attributes containing prices
+    if (listings.length === 0) {
+      const priceEls = container.querySelectorAll(
+        '[aria-label*="$"], [data-price], [data-amount], ' +
+        '[class*="price" i], [class*="cost" i], [class*="amount" i]'
+      );
+      priceEls.forEach((el) => {
+        const text =
+          el.getAttribute("aria-label") ||
+          el.getAttribute("data-price") ||
+          el.getAttribute("data-amount") ||
+          el.textContent?.trim() || "";
+        // Extract first dollar amount from the text
+        const match = text.match(/\$\s?([\d,]+(?:\.\d{2})?)/);
+        if (!match) return;
+        const price = parsePrice(match[1]);
+        if (price === null || price < 5) return;
+
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return;
+        const posKey = `${Math.round(rect.x)}-${Math.round(rect.y)}`;
+        if (seenPrices.has(posKey)) return;
+        seenPrices.add(posKey);
+
+        if (el.closest("header, footer, nav")) return;
+
+        const card = el.closest("li, tr, article, [role='listitem'], button") ??
+          el.parentElement?.parentElement;
+        let section = null;
+        if (card) {
+          const m = (card.textContent ?? "").match(/(?:Section|Sec\.?|Row)\s+(\S+)/i);
+          if (m) section = m[1];
+        }
+        listings.push({ price, section });
+      });
+    }
+
+    // Strategy C: Look for prices in aria-labels on buttons (common on Ticketmaster)
+    if (listings.length === 0) {
+      const buttons = container.querySelectorAll("button[aria-label]");
+      buttons.forEach((btn) => {
+        const label = btn.getAttribute("aria-label") ?? "";
+        const match = label.match(/\$\s?([\d,]+(?:\.\d{2})?)/);
+        if (!match) return;
+        const price = parsePrice(match[1]);
+        if (price === null || price < 5) return;
+
+        const posKey = `btn-${label.substring(0, 30)}`;
+        if (seenPrices.has(posKey)) return;
+        seenPrices.add(posKey);
+
+        const sectionMatch = label.match(/(?:Section|Sec\.?)\s+(\S+)/i);
+        listings.push({ price, section: sectionMatch ? sectionMatch[1] : null });
+      });
+    }
+
+    if (listings.length > 0) {
+      console.log(`[TicketOps] DOM scraper found ${listings.length} prices`);
     }
 
     return listings;
