@@ -226,7 +226,7 @@ export function MarketScanner() {
           <div>
             <label
               htmlFor="scanner-url"
-              className="block text-sm font-medium text-slate-400 mb-1"
+              className="block text-sm font-medium text-warm-500 mb-1"
             >
               Marketplace URL
             </label>
@@ -237,7 +237,7 @@ export function MarketScanner() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://www.stubhub.com/event/..."
-                className="flex-1 rounded-md bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                className="flex-1 rounded-lg bg-warm-50 border border-warm-200 px-3 py-2 text-sm text-warm-700 placeholder-warm-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                 disabled={loading}
               />
               <button
@@ -255,21 +255,21 @@ export function MarketScanner() {
                 )}
               </button>
             </div>
-            <p className="text-xs text-slate-500 mt-1">
+            <p className="text-xs text-warm-400 mt-1">
               Supports StubHub, Ticketmaster, VividSeats, SeatGeek, and Etix
             </p>
           </div>
 
           {/* Auto-refresh controls */}
-          <div className="flex items-center gap-4 border-t border-slate-700 pt-3">
+          <div className="flex items-center gap-4 border-t border-warm-200 pt-3">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={autoRefresh}
                 onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500 focus:ring-offset-0"
+                className="h-4 w-4 rounded border-warm-300 bg-warm-50 text-brand-500 focus:ring-brand-500 focus:ring-offset-0"
               />
-              <span className="text-sm text-slate-300">Auto-refresh</span>
+              <span className="text-sm text-warm-700">Auto-refresh</span>
             </label>
 
             {autoRefresh && (
@@ -279,10 +279,10 @@ export function MarketScanner() {
                     key={opt.value}
                     type="button"
                     onClick={() => setRefreshInterval(opt.value)}
-                    className={`text-xs px-2 py-1 rounded ${
+                    className={`text-xs px-2 py-1 rounded transition-colors ${
                       refreshInterval === opt.value
-                        ? "bg-sky-600 text-white"
-                        : "bg-slate-700 text-slate-400 hover:text-slate-200"
+                        ? "bg-brand-500 text-white"
+                        : "bg-warm-100 text-warm-500 hover:text-warm-700"
                     }`}
                   >
                     {opt.label}
@@ -295,7 +295,7 @@ export function MarketScanner() {
         </form>
 
         {error && (
-          <div className="mt-4 rounded-md bg-red-900/30 border border-red-800 px-4 py-3 text-sm text-red-300">
+          <div className="mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         )}
@@ -305,7 +305,7 @@ export function MarketScanner() {
       {loading && !result && (
         <div className="card flex flex-col items-center justify-center py-16 gap-3">
           <Spinner size="lg" />
-          <p className="text-slate-400 text-sm">
+          <p className="text-warm-500 text-sm">
             Scanning marketplace... this may take 15-30 seconds.
           </p>
         </div>
@@ -318,10 +318,10 @@ export function MarketScanner() {
           <div className="card">
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-slate-100">
+                <h2 className="text-lg font-semibold text-warm-900">
                   {result.eventName}
                 </h2>
-                <p className="text-sm text-slate-400 mt-0.5">
+                <p className="text-sm text-warm-500 mt-0.5">
                   {result.venue} &middot; {result.date}
                 </p>
               </div>
@@ -329,34 +329,34 @@ export function MarketScanner() {
             </div>
 
             {/* Summary stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-700">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t border-warm-200">
               <div className="stat-card">
                 <span className="stat-label">Get-in Price</span>
-                <span className="stat-value text-green-400">
+                <span className="stat-value text-green-600">
                   {formatCurrency(result.stats.getInPrice)}
                 </span>
               </div>
               <div className="stat-card">
                 <span className="stat-label">Median Price</span>
-                <span className="stat-value text-sky-400">
+                <span className="stat-value text-brand-500">
                   {formatCurrency(result.stats.medianPrice)}
                 </span>
               </div>
               <div className="stat-card">
                 <span className="stat-label">Total Listings</span>
-                <span className="stat-value text-white">
+                <span className="stat-value text-warm-900">
                   {result.stats.totalListings.toLocaleString()}
                 </span>
               </div>
               <div className="stat-card">
                 <span className="stat-label">Event Name</span>
-                <span className="stat-value text-white text-sm truncate">
+                <span className="stat-value text-warm-900 text-sm truncate">
                   {result.eventName}
                 </span>
               </div>
             </div>
 
-            <p className="text-xs text-slate-500 mt-3">
+            <p className="text-xs text-warm-400 mt-3">
               Scanned at {formatTime(result.scannedAt)}
               {autoRefresh &&
                 ` \u00b7 Auto-refreshing every ${
@@ -371,7 +371,7 @@ export function MarketScanner() {
           <div className="card overflow-x-auto p-0">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-700 text-left text-xs uppercase text-slate-400">
+                <tr className="border-b border-warm-200 text-left text-xs uppercase text-warm-500">
                   <th className="px-4 py-3">Section</th>
                   <th className="px-4 py-3">Row</th>
                   <th className="px-4 py-3">Price</th>
@@ -388,7 +388,7 @@ export function MarketScanner() {
 
                   return (
                     <tr key={`${listing.section}-${listing.row}-${idx}`} className="table-row">
-                      <td className="px-4 py-3 font-medium">
+                      <td className="px-4 py-3 font-medium text-warm-900">
                         {listing.section}
                       </td>
                       <td className="px-4 py-3">{listing.row}</td>
@@ -406,14 +406,14 @@ export function MarketScanner() {
                           <span
                             className={
                               fees > listing.price * 0.25
-                                ? "text-red-400"
-                                : "text-slate-400"
+                                ? "text-red-600"
+                                : "text-warm-500"
                             }
                           >
                             {formatCurrency(fees)}
                           </span>
                         ) : (
-                          <span className="text-slate-500">\u2014</span>
+                          <span className="text-warm-400">\u2014</span>
                         )}
                       </td>
                     </tr>
@@ -424,7 +424,7 @@ export function MarketScanner() {
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-4 py-8 text-center text-slate-500"
+                      className="px-4 py-8 text-center text-warm-400"
                     >
                       No listings found for this event.
                     </td>
@@ -440,7 +440,7 @@ export function MarketScanner() {
       {savedScans.length > 0 && (
         <div className="card">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium text-slate-400">
+            <h3 className="text-sm font-medium text-warm-500">
               Saved Scans
             </h3>
             <button
@@ -458,7 +458,7 @@ export function MarketScanner() {
             {savedScans.map((scan) => (
               <div
                 key={scan.url}
-                className="flex items-center gap-3 rounded-md bg-slate-900/60 border border-slate-700 px-3 py-2 group"
+                className="flex items-center gap-3 rounded-lg bg-warm-50 border border-warm-200 px-3 py-2 group"
               >
                 <span className="badge-green text-xs shrink-0">
                   {scan.platform}
@@ -467,16 +467,16 @@ export function MarketScanner() {
                   onClick={() => handleSavedScanClick(scan.url)}
                   className="flex-1 min-w-0 text-left"
                 >
-                  <span className="text-sm text-slate-200 truncate block hover:text-sky-400 transition-colors">
+                  <span className="text-sm text-warm-700 truncate block hover:text-brand-500 transition-colors">
                     {scan.eventName ?? scan.url}
                   </span>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-warm-400">
                     Last scanned {formatTime(scan.lastScanned)}
                   </span>
                 </button>
                 <button
                   onClick={() => handleRemoveSavedScan(scan.url)}
-                  className="text-slate-600 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity text-sm"
+                  className="text-warm-300 hover:text-warm-700 opacity-0 group-hover:opacity-100 transition-opacity text-sm"
                   aria-label="Remove saved scan"
                 >
                   ✕
@@ -496,7 +496,7 @@ function Spinner({ size = "sm" }: { size?: "sm" | "lg" }) {
   const dims = size === "lg" ? "h-8 w-8" : "h-4 w-4";
   return (
     <svg
-      className={`animate-spin ${dims} text-sky-400`}
+      className={`animate-spin ${dims} text-brand-500`}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
