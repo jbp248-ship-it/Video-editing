@@ -13,9 +13,12 @@ import type { DashboardStats } from "@/types";
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [inventory, setInventory] = useState([]);
-  const [alerts, setAlerts] = useState([]);
-  const [snapshots, setSnapshots] = useState([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [inventory, setInventory] = useState<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [alerts, setAlerts] = useState<any[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [snapshots, setSnapshots] = useState<any[]>([]);
   const [alertCount, setAlertCount] = useState(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,9 +109,7 @@ export default function DashboardPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ids, action: "dismiss" }),
     });
-    setAlerts((prev) =>
-      (prev as { id: string }[]).filter((a) => !ids.includes(a.id))
-    );
+    setAlerts((prev) => prev.filter((a) => !ids.includes(a.id)));
     setAlertCount((c) => Math.max(0, c - ids.length));
   };
 
@@ -119,9 +120,7 @@ export default function DashboardPage() {
       body: JSON.stringify({ ids, action: "read" }),
     });
     setAlerts((prev) =>
-      (prev as { id: string; read: boolean }[]).map((a) =>
-        ids.includes(a.id) ? { ...a, read: true } : a
-      )
+      prev.map((a) => (ids.includes(a.id) ? { ...a, read: true } : a))
     );
     setAlertCount((c) => Math.max(0, c - ids.length));
   };
