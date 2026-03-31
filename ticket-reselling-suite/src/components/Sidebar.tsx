@@ -4,6 +4,7 @@ import { useState } from "react";
 
 const NAV_ITEMS = [
   { id: "dashboard", label: "Dashboard", icon: "📊" },
+  { id: "browse", label: "Browse Sites", icon: "🌐" },
   { id: "inventory", label: "Inventory", icon: "🎫" },
   { id: "sales", label: "Sales", icon: "💰" },
   { id: "market", label: "Market Scanner", icon: "🔍" },

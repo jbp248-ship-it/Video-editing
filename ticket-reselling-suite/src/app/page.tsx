@@ -7,6 +7,7 @@ import { InventoryTable } from "@/components/InventoryTable";
 import { AlertPanel } from "@/components/AlertPanel";
 import { PriceTrendChart } from "@/components/PriceTrendChart";
 import { MarketScanner } from "@/components/MarketScanner";
+import { TicketBrowser } from "@/components/TicketBrowser";
 import type { DashboardStats } from "@/types";
 
 export default function DashboardPage() {
@@ -135,7 +136,7 @@ export default function DashboardPage() {
         {/* Top Bar */}
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-slate-700 bg-slate-900/80 backdrop-blur px-6">
           <h1 className="text-lg font-semibold capitalize">
-            {activeTab === "market" ? "Market Scanner" : activeTab}
+            {activeTab === "market" ? "Market Scanner" : activeTab === "browse" ? "Browse Ticket Sites" : activeTab}
           </h1>
           <div className="flex items-center gap-4">
             <input
@@ -236,6 +237,9 @@ export default function DashboardPage() {
               Sales history will appear here once you record your first sale.
             </div>
           )}
+
+          {/* ─── Browse Sites View ──────────────────────────── */}
+          {activeTab === "browse" && <TicketBrowser />}
 
           {/* ─── Market Scanner View ──────────────────────────── */}
           {activeTab === "market" && <MarketScanner />}
