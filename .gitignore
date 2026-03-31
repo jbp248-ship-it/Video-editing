@@ -14,3 +14,10 @@ dist/
 build/
 .venv/
 venv/
+
+# Ticket Reselling Suite
+ticket-reselling-suite/node_modules/
+ticket-reselling-suite/.next/
+ticket-reselling-suite/dist-electron/
+ticket-reselling-suite/prisma/*.db
+ticket-reselling-suite/prisma/*.db-journal
