@@ -33,20 +33,25 @@ export async function GET(req: NextRequest) {
 
 // ─── POST /api/inventory ─────────────────────────────────────────────────────
 
-const CreateInventorySchema = z.object({
-  eventId: z.string(),
-  section: z.string(),
-  row: z.string(),
-  seatFrom: z.number().int().positive(),
-  seatTo: z.number().int().positive(),
-  quantity: z.number().int().positive().optional(),
-  purchasePrice: z.number().positive(),
-  purchasePlatform: z.string().optional(),
-  listPrice: z.number().positive().optional(),
-  listPlatform: z.string().optional(),
-  status: z.string().optional(),
-  notes: z.string().optional(),
-});
+const CreateInventorySchema = z
+  .object({
+    eventId: z.string(),
+    section: z.string(),
+    row: z.string(),
+    seatFrom: z.number().int().positive(),
+    seatTo: z.number().int().positive(),
+    quantity: z.number().int().positive().optional(),
+    purchasePrice: z.number().positive(),
+    purchasePlatform: z.string().optional(),
+    listPrice: z.number().positive().optional(),
+    listPlatform: z.string().optional(),
+    status: z.string().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.seatTo >= data.seatFrom, {
+    message: "seatTo must be greater than or equal to seatFrom",
+    path: ["seatTo"],
+  });
 
 export async function POST(req: NextRequest) {
   const authError = requireAuth(req);

@@ -63,8 +63,9 @@ async function handleSnapshot(snapshot) {
     const response = await fetch(`${DASHBOARD_API_BASE}/snapshots`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(5000),
       body: JSON.stringify({
-        eventId: snapshot.eventId ?? "pending-match",
+        eventName: snapshot.eventName,
         platform: snapshot.platform,
         getInPrice: snapshot.getInPrice,
         medianPrice: snapshot.medianPrice,

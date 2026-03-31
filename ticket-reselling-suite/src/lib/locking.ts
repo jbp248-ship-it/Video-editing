@@ -18,6 +18,11 @@ export interface LockResult {
   otherPlatformListings: string[];
   alertId: string;
   alreadyLocked: boolean;
+  /** The inventory snapshot read inside the transaction — use for cost basis */
+  inventory: {
+    purchasePrice: number;
+    quantity: number;
+  } | null;
 }
 
 /**
@@ -50,6 +55,7 @@ export async function lockInventoryOnSale(
         otherPlatformListings: [],
         alertId: "",
         alreadyLocked: true,
+        inventory: null,
       };
     }
 
@@ -70,6 +76,7 @@ export async function lockInventoryOnSale(
         otherPlatformListings: [],
         alertId: "",
         alreadyLocked: true,
+        inventory: null,
       };
     }
 
@@ -97,6 +104,10 @@ export async function lockInventoryOnSale(
       otherPlatformListings,
       alertId: alert.id,
       alreadyLocked: false,
+      inventory: {
+        purchasePrice: inventory.purchasePrice,
+        quantity: inventory.quantity,
+      },
     };
   });
 }

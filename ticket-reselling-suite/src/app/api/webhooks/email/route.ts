@@ -6,7 +6,8 @@ import { calculateProfit } from "@/lib/fees";
 import { verifyWebhookSecret } from "@/lib/auth";
 
 /**
- * POST /api/webhooks/email?token=YOUR_WEBHOOK_SECRET
+ * POST /api/webhooks/email
+ * Header: X-Webhook-Secret: YOUR_POSTMARK_WEBHOOK_SECRET
  *
  * Receives inbound email webhooks from Postmark.
  * Postmark sends parsed email data as JSON when a sale confirmation
@@ -14,8 +15,9 @@ import { verifyWebhookSecret } from "@/lib/auth";
  *
  * Setup:
  * 1. Create a Postmark inbound server
- * 2. Set the webhook URL to: https://yourdomain.com/api/webhooks/email?token=YOUR_SECRET
- * 3. Forward all platform sale emails to your Postmark inbound address
+ * 2. Set the webhook URL to: https://yourdomain.com/api/webhooks/email
+ * 3. Add X-Webhook-Secret header in Postmark webhook settings
+ * 4. Forward all platform sale emails to your Postmark inbound address
  */
 
 export async function POST(req: NextRequest) {
@@ -79,7 +81,7 @@ export async function POST(req: NextRequest) {
   );
 
   // If already locked by another concurrent sale, skip creating a duplicate
-  if (lockResult.alreadyLocked) {
+  if (lockResult.alreadyLocked || !lockResult.inventory) {
     return NextResponse.json({
       status: "already_locked",
       inventoryId: matchedInventory.id,
@@ -87,13 +89,13 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  // Calculate profit
+  // Calculate profit using transactionally-consistent inventory data
   const profit = calculateProfit(
     parsed.platform,
     parsed.salePrice,
     parsed.quantity,
-    Number(matchedInventory.purchasePrice),
-    matchedInventory.quantity
+    lockResult.inventory.purchasePrice,
+    lockResult.inventory.quantity
   );
 
   // Create sale record

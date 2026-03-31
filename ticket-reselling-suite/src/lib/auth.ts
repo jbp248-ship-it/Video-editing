@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 
 /**
  * API Authentication Middleware
  *
- * Protects mutation endpoints with a bearer token.
- * The token is set via API_SECRET in .env.
- *
- * GET endpoints (dashboard reads) are allowed without auth when
- * the request comes from localhost (Electron app / local dev).
- * External POST/PATCH/DELETE requests always require the token.
+ * Auth model:
+ * - If API_SECRET is not set, auth is DISABLED (local-only desktop use).
+ *   A console warning is emitted on first request.
+ * - If API_SECRET is set, all requests require a Bearer token.
+ *   GET requests from the Electron renderer (same-origin, no token) are
+ *   exempted by checking the Sec-Fetch-Site header, which browsers set
+ *   and cannot be spoofed from cross-origin contexts.
  */
+
+let warnedNoSecret = false;
 
 export function requireAuth(
   req: NextRequest,
@@ -17,14 +21,25 @@ export function requireAuth(
 ): NextResponse | null {
   const { allowLocalReads = true } = options;
 
-  // Allow all requests if no API_SECRET is configured (local-only mode)
   const secret = process.env.API_SECRET;
-  if (!secret) return null;
 
-  // Allow local GET requests (from Electron/browser on same machine)
+  // No secret configured — local desktop mode, auth disabled
+  if (!secret) {
+    if (!warnedNoSecret) {
+      console.warn(
+        "[TicketOps] WARNING: API_SECRET is not set. All API endpoints are unauthenticated. " +
+          "Set API_SECRET in .env if you expose this app beyond localhost."
+      );
+      warnedNoSecret = true;
+    }
+    return null;
+  }
+
+  // Allow same-origin GET requests from the Electron renderer.
+  // Sec-Fetch-Site is set by browsers and cannot be forged by cross-origin requests.
   if (allowLocalReads && req.method === "GET") {
-    const host = req.headers.get("host") ?? "";
-    if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
+    const fetchSite = req.headers.get("sec-fetch-site");
+    if (fetchSite === "same-origin" || fetchSite === "none") {
       return null;
     }
   }
@@ -35,34 +50,50 @@ export function requireAuth(
     ? authHeader.slice(7)
     : null;
 
-  if (token !== secret) {
+  if (!token || !timingSafeEqual(token, secret)) {
     return NextResponse.json(
       { error: "Unauthorized" },
       { status: 401 }
     );
   }
 
-  return null; // Auth passed
+  return null;
 }
 
 /**
- * Verify Postmark webhook signature.
- * Checks that the request contains the expected webhook secret.
+ * Verify Postmark webhook signature via X-Webhook-Secret header.
+ * Postmark should be configured to send this header with each webhook delivery.
  */
 export function verifyWebhookSecret(req: NextRequest): NextResponse | null {
   const secret = process.env.POSTMARK_WEBHOOK_SECRET;
-  if (!secret) return null; // No secret configured, skip verification
 
-  // Postmark doesn't sign payloads, but we can use a secret URL param
-  const url = new URL(req.url);
-  const token = url.searchParams.get("token");
-
-  if (token !== secret) {
+  // No secret configured — reject all webhooks to prevent silent insecurity
+  if (!secret) {
     return NextResponse.json(
-      { error: "Invalid webhook token" },
+      { error: "Webhook secret not configured. Set POSTMARK_WEBHOOK_SECRET in .env." },
+      { status: 503 }
+    );
+  }
+
+  // Check header (not URL parameter — headers don't leak into logs)
+  const provided =
+    req.headers.get("x-webhook-secret") ??
+    req.headers.get("x-postmark-secret") ??
+    // Fallback: also accept URL param for backwards compat during migration
+    new URL(req.url).searchParams.get("token");
+
+  if (!provided || !timingSafeEqual(provided, secret)) {
+    return NextResponse.json(
+      { error: "Invalid webhook secret" },
       { status: 403 }
     );
   }
 
-  return null; // Verified
+  return null;
+}
+
+/** Constant-time string comparison to prevent timing attacks */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }

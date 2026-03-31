@@ -15,6 +15,7 @@ export default function DashboardPage() {
   const [alerts, setAlerts] = useState([]);
   const [snapshots, setSnapshots] = useState([]);
   const [alertCount, setAlertCount] = useState(0);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -31,21 +32,64 @@ export default function DashboardPage() {
       }
       if (invRes.ok) setInventory(await invRes.json());
       if (alertRes.ok) setAlerts(await alertRes.json());
-    } catch {
-      // Silently fail — dashboard will show loading state
+      setFetchError(null);
+    } catch (err) {
+      setFetchError(
+        err instanceof Error ? err.message : "Failed to connect to API"
+      );
     }
   }, []);
 
   useEffect(() => {
     fetchData();
-    // Auto-refresh every 30 seconds for near-real-time updates
     const interval = setInterval(fetchData, 30_000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const handleRecordSale = (inventoryId: string) => {
-    // In production, this opens a modal. Placeholder for now.
-    console.log("Record sale for:", inventoryId);
+  const handleRecordSale = async (inventoryId: string) => {
+    const priceStr = prompt("Sale price per ticket ($):");
+    if (!priceStr) return;
+    const salePrice = parseFloat(priceStr);
+    if (isNaN(salePrice) || salePrice <= 0) {
+      alert("Invalid price. Please enter a positive number.");
+      return;
+    }
+
+    const qtyStr = prompt("Quantity sold:", "1");
+    const quantitySold = parseInt(qtyStr ?? "1", 10);
+    if (isNaN(quantitySold) || quantitySold < 1) {
+      alert("Invalid quantity.");
+      return;
+    }
+
+    const platform = prompt(
+      "Platform (STUBHUB, TICKETMASTER, VIVID_SEATS, SEATGEEK):",
+      "STUBHUB"
+    );
+    if (!platform) return;
+
+    try {
+      const res = await fetch("/api/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inventoryId,
+          platform: platform.toUpperCase(),
+          salePrice,
+          quantitySold,
+          source: "MANUAL",
+        }),
+      });
+
+      if (res.ok) {
+        fetchData(); // Refresh dashboard
+      } else {
+        const data = await res.json();
+        alert(data.error ?? "Failed to record sale.");
+      }
+    } catch {
+      alert("Failed to record sale. Check that the app is running.");
+    }
   };
 
   const handleDismissAlerts = async (ids: string[]) => {
@@ -97,6 +141,21 @@ export default function DashboardPage() {
         </header>
 
         <div className="p-6 space-y-6">
+          {/* Error Banner */}
+          {fetchError && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm text-red-400">
+                Failed to load data: {fetchError}
+              </span>
+              <button
+                className="text-xs text-red-300 hover:text-white"
+                onClick={fetchData}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* ─── Dashboard View ──────────────────────────────── */}
           {activeTab === "dashboard" && (
             <>

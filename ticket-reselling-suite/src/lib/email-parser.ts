@@ -153,7 +153,52 @@ const platformParsers: Record<
       if (qtyMatch) result.quantity = parseInt(qtyMatch[1], 10);
 
       result.confidence =
-        result.eventName && result.salePrice ? "high" : "low";
+        result.eventName && result.salePrice ? "high" : "medium";
+
+      return result;
+    },
+  },
+
+  SEATGEEK: {
+    detect(from, subject) {
+      return (
+        from.toLowerCase().includes("seatgeek") &&
+        (subject.toLowerCase().includes("sold") ||
+          subject.toLowerCase().includes("sale") ||
+          subject.toLowerCase().includes("order"))
+      );
+    },
+
+    parse(body) {
+      const result: Partial<ParsedSale> = { platform: "SEATGEEK" };
+
+      const eventMatch = body.match(
+        /(?:Event|Show):\s*(.+?)(?:\n|\r|Date:|Section:|$)/i
+      );
+      if (eventMatch) result.eventName = eventMatch[1].trim();
+
+      const sectionMatch = body.match(/Sec(?:tion)?\.?\s*(\S+)/i);
+      if (sectionMatch) result.section = sectionMatch[1].replace(/,/g, "");
+
+      const rowMatch = body.match(/Row\s*(\S+)/i);
+      if (rowMatch) result.row = rowMatch[1].replace(/,/g, "");
+
+      const priceMatch = body.match(
+        /(?:Sale|Sold|Total)\s*(?:Price|Amount)?:?\s*\$?([\d,.]+)/i
+      );
+      if (priceMatch)
+        result.salePrice = parseFloat(priceMatch[1].replace(/,/g, ""));
+
+      const qtyMatch = body.match(/(?:Qty|Quantity):\s*(\d+)/i);
+      if (qtyMatch) result.quantity = parseInt(qtyMatch[1], 10);
+
+      const orderMatch = body.match(
+        /(?:Order|Confirmation)\s*#?:?\s*([A-Z0-9-]+)/i
+      );
+      if (orderMatch) result.buyerOrderId = orderMatch[1];
+
+      result.confidence =
+        result.eventName && result.salePrice ? "high" : "medium";
 
       return result;
     },

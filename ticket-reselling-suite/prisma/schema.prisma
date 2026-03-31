@@ -83,7 +83,7 @@ model Sale {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  @@index([inventoryId])
+  @@index([inventoryId, saleDate])
   @@index([platform])
   @@index([saleDate])
 }
@@ -92,9 +92,10 @@ model Sale {
 
 model MarketSnapshot {
   id            String   @id @default(cuid())
-  eventId       String
-  event         Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId       String?
+  event         Event?   @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
+  eventName     String?  // From extension — used to auto-match to eventId later
   platform      String
   section       String?
   getInPrice    Float
@@ -110,6 +111,7 @@ model MarketSnapshot {
   @@index([eventId, platform, capturedAt])
   @@index([capturedAt, granularity])
   @@index([eventId, section, platform, capturedAt])
+  @@index([eventName])
 }
 
 // ─── Alerts ──────────────────────────────────────────────────────────────────

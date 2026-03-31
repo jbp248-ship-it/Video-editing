@@ -44,9 +44,11 @@ export async function GET(req: NextRequest) {
 
 // ─── POST /api/snapshots ─────────────────────────────────────────────────────
 // Ingest market snapshots from the Chrome extension.
+// eventId is optional — if eventName is provided, we auto-match to an event.
 
 const CreateSnapshotSchema = z.object({
-  eventId: z.string(),
+  eventId: z.string().optional(),
+  eventName: z.string().optional(),
   platform: z.string(),
   section: z.string().nullable().optional(),
   getInPrice: z.number().positive(),
@@ -62,34 +64,44 @@ export async function POST(req: NextRequest) {
   if (authError) return authError;
 
   const body = await req.json();
-
-  // Support batch ingestion
   const items = Array.isArray(body) ? body : [body];
 
-  // Validate all items first
   const validData = [];
   const errors = [];
+
   for (const item of items) {
     const parsed = CreateSnapshotSchema.safeParse(item);
     if (!parsed.success) {
       errors.push({ error: parsed.error.flatten(), input: item });
-    } else {
-      validData.push({
-        eventId: parsed.data.eventId,
-        platform: parsed.data.platform,
-        section: parsed.data.section ?? null,
-        getInPrice: parsed.data.getInPrice,
-        medianPrice: parsed.data.medianPrice ?? null,
-        averagePrice: parsed.data.averagePrice ?? null,
-        maxPrice: parsed.data.maxPrice ?? null,
-        totalListings: parsed.data.totalListings,
-        totalTickets: parsed.data.totalTickets ?? null,
-        granularity: "HOURLY",
-      });
+      continue;
     }
+
+    let resolvedEventId = parsed.data.eventId ?? null;
+
+    // Auto-match by eventName if no eventId provided
+    if (!resolvedEventId && parsed.data.eventName) {
+      const matched = await prisma.event.findFirst({
+        where: { name: { contains: parsed.data.eventName } },
+        select: { id: true },
+      });
+      if (matched) resolvedEventId = matched.id;
+    }
+
+    validData.push({
+      eventId: resolvedEventId,
+      eventName: parsed.data.eventName ?? null,
+      platform: parsed.data.platform,
+      section: parsed.data.section ?? null,
+      getInPrice: parsed.data.getInPrice,
+      medianPrice: parsed.data.medianPrice ?? null,
+      averagePrice: parsed.data.averagePrice ?? null,
+      maxPrice: parsed.data.maxPrice ?? null,
+      totalListings: parsed.data.totalListings,
+      totalTickets: parsed.data.totalTickets ?? null,
+      granularity: "HOURLY",
+    });
   }
 
-  // Batch insert all valid snapshots in a single query
   let created = 0;
   if (validData.length > 0) {
     const result = await prisma.marketSnapshot.createMany({

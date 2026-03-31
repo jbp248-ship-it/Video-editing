@@ -42,10 +42,10 @@ export async function PATCH(req: NextRequest) {
 
   const data = action === "read" ? { read: true } : { dismissed: true };
 
-  await prisma.alert.updateMany({
+  const result = await prisma.alert.updateMany({
     where: { id: { in: ids } },
     data,
   });
 
-  return NextResponse.json({ updated: ids.length });
+  return NextResponse.json({ updated: result.count });
 }

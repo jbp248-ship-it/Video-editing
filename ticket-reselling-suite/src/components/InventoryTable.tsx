@@ -36,6 +36,7 @@ interface InventoryTableProps {
 function formatCurrency(n: number | string | null): string {
   if (n === null || n === undefined) return "—";
   const num = typeof n === "string" ? parseFloat(n) : n;
+  if (isNaN(num)) return "—";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",

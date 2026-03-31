@@ -64,19 +64,15 @@ export async function POST(req: NextRequest) {
 
   const data = parsed.data;
 
-  // Fetch inventory for cost basis
-  const inventory = await prisma.inventory.findUniqueOrThrow({
-    where: { id: data.inventoryId },
-  });
-
   // 1. LOCK first — prevent double-sells
+  // The lock transaction also returns the inventory snapshot for cost basis,
+  // ensuring the price we use is from the same atomic read as the status check.
   const lockResult = await lockInventoryOnSale(
     data.inventoryId,
     data.platform
   );
 
-  // If already locked by another concurrent sale, reject
-  if (lockResult.alreadyLocked) {
+  if (lockResult.alreadyLocked || !lockResult.inventory) {
     return NextResponse.json(
       {
         error: "This inventory item is already locked or sold",
@@ -86,13 +82,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Calculate profit
+  // 2. Calculate profit using the transactionally-consistent inventory data
   const profit = calculateProfit(
     data.platform,
     data.salePrice,
     data.quantitySold,
-    Number(inventory.purchasePrice),
-    inventory.quantity,
+    lockResult.inventory.purchasePrice,
+    lockResult.inventory.quantity,
     data.feeOverrides
   );
 
