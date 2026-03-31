@@ -418,6 +418,7 @@
         `Event: "${eventName}"`
     );
 
+    showBadge(`✓ ${listings.length} listings | $${stats.getInPrice} get-in`);
     networkListings.length = 0;
   }
 
@@ -436,28 +437,68 @@
     observer.observe(target, { childList: true, subtree: true, characterData: true });
   }
 
+  // ─── On-Page Badge ────────────────────────────────────────────────────
+
+  let badgeEl = null;
+
+  function showBadge(text) {
+    if (!badgeEl) {
+      badgeEl = document.createElement("div");
+      badgeEl.id = "ticketops-badge";
+      badgeEl.style.cssText =
+        "position:fixed;bottom:16px;right:16px;z-index:999999;" +
+        "background:#0ea5e9;color:#fff;font-size:13px;font-weight:600;" +
+        "padding:8px 14px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.3);" +
+        "font-family:system-ui,sans-serif;cursor:pointer;transition:opacity .3s;";
+      badgeEl.onclick = () => { badgeEl.style.opacity = "0"; setTimeout(() => badgeEl?.remove(), 300); badgeEl = null; };
+      document.body.appendChild(badgeEl);
+    }
+    badgeEl.textContent = "TicketOps: " + text;
+    badgeEl.style.opacity = "1";
+  }
+
   // ─── Boot ────────────────────────────────────────────────────────────
 
   const platform = detectPlatform();
   if (platform) {
     console.log(`[TicketOps] Active on ${platform}. Three-layer capture enabled.`);
+    showBadge("Scanning...");
 
     setupObserver();
 
-    // Layer 1: Try embedded data after page settles
+    // Try embedded data quickly (1.5s)
     setTimeout(() => {
       if (!dataCaptured) {
-        console.log("[TicketOps] Checking embedded page data...");
+        console.log("[TicketOps] Layer 1: Checking embedded page data...");
         sendSnapshot();
       }
-    }, EMBEDDED_CHECK_DELAY_MS);
+    }, 1500);
 
-    // Layer 3: DOM fallback if nothing else worked
+    // Try again after more content may have loaded (4s)
     setTimeout(() => {
       if (!dataCaptured) {
-        console.log("[TicketOps] Trying DOM fallback...");
+        console.log("[TicketOps] Layer 2: Retrying with network + embedded...");
         sendSnapshot();
       }
-    }, FALLBACK_DELAY_MS);
+    }, 4000);
+
+    // DOM fallback as last resort (8s)
+    setTimeout(() => {
+      if (!dataCaptured) {
+        console.log("[TicketOps] Layer 3: DOM fallback...");
+        sendSnapshot();
+      }
+    }, 8000);
+
+    // Final attempt (15s) — page should be fully loaded by now
+    setTimeout(() => {
+      if (!dataCaptured) {
+        console.log("[TicketOps] Final attempt...");
+        sendSnapshot();
+        if (!dataCaptured) {
+          showBadge("No listings found — try scrolling");
+        }
+      }
+    }, 15000);
   }
 })();
