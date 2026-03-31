@@ -94,14 +94,24 @@ function startNextServer() {
   });
 }
 
-function waitForServer(retries = 60) {
+function waitForServer(retries = 240) {
+  // 240 retries * 500ms = 2 minutes max wait.
+  // First compile on Windows can take 60+ seconds.
   return new Promise((resolve, reject) => {
     let attempts = 0;
 
     const check = () => {
       attempts++;
+      if (attempts % 10 === 0) {
+        console.log(`Waiting for Next.js... (${attempts}/${retries})`);
+      }
       const req = http.get(`http://localhost:${PORT}`, (res) => {
-        resolve();
+        // Wait for a real 200, not a compile-in-progress response
+        if (res.statusCode === 200) {
+          resolve();
+        } else {
+          setTimeout(check, 500);
+        }
         res.resume();
       });
 
@@ -113,7 +123,7 @@ function waitForServer(retries = 60) {
         }
       });
 
-      req.setTimeout(1000, () => {
+      req.setTimeout(2000, () => {
         req.destroy();
         if (attempts >= retries) {
           reject(new Error("Server timed out"));
