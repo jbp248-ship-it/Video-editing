@@ -33,9 +33,9 @@ interface TicketOpsAPI {
   refresh: () => Promise<void>;
   closeBrowser: () => Promise<void>;
   getData: () => Promise<CapturedData | null>;
-  onUrlChanged: (cb: (url: string) => void) => void;
-  onLoadingChanged: (cb: (loading: boolean) => void) => void;
-  onTitleChanged: (cb: (title: string) => void) => void;
+  setSidebarWidth: (w: number) => Promise<void>;
+  onUrlChanged: (cb: (url: string) => void) => () => void;
+  onLoadingChanged: (cb: (loading: boolean) => void) => () => void;
 }
 
 declare global {
@@ -85,56 +85,71 @@ export function TicketBrowser() {
   const [history, setHistory] = useState<ScanHistoryEntry[]>([]);
   const [dataTab, setDataTab] = useState<"live" | "history">("live");
   const [saved, setSaved] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const api = typeof window !== "undefined" ? window.ticketOps : null;
 
+  // Listen for URL/loading changes — with proper cleanup
   useEffect(() => {
     if (!api) return;
-    api.onUrlChanged((newUrl: string) => {
+    const unsubUrl = api.onUrlChanged((newUrl: string) => {
       setUrl(newUrl);
       setData(null);
       setSaved(false);
     });
-    api.onLoadingChanged((isLoading: boolean) => setLoading(isLoading));
+    const unsubLoading = api.onLoadingChanged((isLoading: boolean) =>
+      setLoading(isLoading)
+    );
+    return () => {
+      unsubUrl();
+      unsubLoading();
+    };
   }, [api]);
 
-  // Poll for captured data
+  // Poll for captured data — recursive setTimeout to prevent queue-up
+  const pollingRef = useRef(false);
   useEffect(() => {
     if (!isOpen || !api) return;
-    pollRef.current = setInterval(async () => {
-      const result = await api.getData();
-      if (result && result.count > 0) {
-        setData((prev) => {
-          // Auto-add to history when we get new data for a different event
-          if (prev && prev.eventName !== result.eventName && prev.count > 0) {
-            const stats = computeStats(prev.listings);
-            if (stats) {
-              setHistory((h) => {
-                const exists = h.some((e) => e.url === prev.url);
-                if (exists) return h;
-                return [
-                  {
-                    eventName: prev.eventName,
-                    platform: prev.platform,
-                    url: prev.url,
-                    getIn: stats.getIn,
-                    median: stats.median,
-                    total: stats.total,
-                    time: new Date().toLocaleTimeString(),
-                  },
-                  ...h,
-                ].slice(0, 50);
-              });
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled || pollingRef.current) return;
+      pollingRef.current = true;
+      try {
+        const result = await api.getData();
+        if (cancelled) return;
+        if (result && result.count > 0) {
+          setData((prev) => {
+            if (prev && prev.eventName !== result.eventName && prev.count > 0) {
+              const s = computeStats(prev.listings);
+              if (s) {
+                setHistory((h) => {
+                  if (h.some((e) => e.url === prev.url)) return h;
+                  return [
+                    {
+                      eventName: prev.eventName,
+                      platform: prev.platform,
+                      url: prev.url,
+                      getIn: s.getIn,
+                      median: s.median,
+                      total: s.total,
+                      time: new Date().toLocaleTimeString(),
+                    },
+                    ...h,
+                  ].slice(0, 50);
+                });
+              }
             }
-          }
-          return result;
-        });
-        setSaved(false);
+            return result;
+          });
+          setSaved(false);
+        }
+      } finally {
+        pollingRef.current = false;
+        if (!cancelled) setTimeout(poll, 2000);
       }
-    }, 2000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
     };
+
+    setTimeout(poll, 1000);
+    return () => { cancelled = true; };
   }, [isOpen, api]);
 
   const navigate = useCallback(

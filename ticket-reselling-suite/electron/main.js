@@ -1,39 +1,33 @@
-const { app, BrowserWindow, BrowserView, ipcMain, shell, session } = require("electron");
+const { app, BrowserWindow, BrowserView, ipcMain, shell } = require("electron");
 const { spawn, execSync } = require("child_process");
 const path = require("path");
 const http = require("http");
 
-// Enforce single instance
 const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
-}
+if (!gotLock) app.quit();
 
 const PORT = 3099;
 const isDev = !app.isPackaged;
 let mainWindow = null;
 let nextProcess = null;
 let ticketBrowserView = null;
+let sidebarWidth = 224; // Synced from renderer
 
 function killProcessTree(proc) {
   if (!proc || proc.killed) return;
   if (process.platform === "win32") {
-    try {
-      execSync(`taskkill /F /T /PID ${proc.pid}`, { stdio: "pipe" });
-    } catch (e) {}
+    try { execSync(`taskkill /F /T /PID ${proc.pid}`, { stdio: "pipe" }); } catch {}
   } else {
     proc.kill();
   }
 }
 
 function getProjectRoot() {
-  if (isDev) return path.join(__dirname, "..");
-  return path.join(process.resourcesPath, "app");
+  return isDev ? path.join(__dirname, "..") : path.join(process.resourcesPath, "app");
 }
 
 function getDatabasePath() {
-  const userDataDir = app.getPath("userData");
-  return `file:${path.join(userDataDir, "ticketops.db")}`;
+  return `file:${path.join(app.getPath("userData"), "ticketops.db")}`;
 }
 
 function getEnv() {
@@ -46,11 +40,9 @@ function getEnv() {
 }
 
 function initDatabase() {
-  const root = getProjectRoot();
-  const env = getEnv();
   try {
     execSync("npx prisma db push --skip-generate", {
-      cwd: root, env, shell: true, stdio: "pipe", timeout: 30000,
+      cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe", timeout: 30000,
     });
     console.log("Database initialized at:", getDatabasePath());
   } catch (err) {
@@ -59,11 +51,9 @@ function initDatabase() {
 }
 
 function startNextServer() {
-  const root = getProjectRoot();
-  const env = getEnv();
   const cmd = isDev ? "dev" : "start";
   nextProcess = spawn("npx", ["next", cmd, "-p", String(PORT)], {
-    cwd: root, env, shell: true, stdio: "pipe",
+    cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe",
   });
   nextProcess.stdout.on("data", (d) => console.log(`[next] ${d.toString().trim()}`));
   nextProcess.stderr.on("data", (d) => console.error(`[next] ${d.toString().trim()}`));
@@ -79,18 +69,16 @@ function waitForServer(retries = 240) {
     const check = () => {
       attempts++;
       if (attempts % 10 === 0) console.log(`Waiting for Next.js... (${attempts}/${retries})`);
-      const req = http.get(`http://localhost:${PORT}`, (res) => {
-        if (res.statusCode === 200) resolve();
-        else setTimeout(check, 500);
+      const req = http.get(`http://localhost:${PORT}`, { timeout: 2000 }, (res) => {
         res.resume();
+        req.destroy();
+        if (res.statusCode === 200) resolve();
+        else if (attempts >= retries) reject(new Error(`Server returned ${res.statusCode}`));
+        else setTimeout(check, 500);
       });
       req.on("error", () => {
-        if (attempts >= retries) reject(new Error("Server did not start in time"));
-        else setTimeout(check, 500);
-      });
-      req.setTimeout(2000, () => {
         req.destroy();
-        if (attempts >= retries) reject(new Error("Server timed out"));
+        if (attempts >= retries) reject(new Error("Server did not start in time"));
         else setTimeout(check, 500);
       });
     };
@@ -100,12 +88,8 @@ function waitForServer(retries = 240) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 700,
-    title: "TicketOps",
-    backgroundColor: "#0f172a",
+    width: 1400, height: 900, minWidth: 1024, minHeight: 700,
+    title: "TicketOps", backgroundColor: "#0f172a",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -116,31 +100,27 @@ function createWindow() {
 
   mainWindow.loadURL(`http://localhost:${PORT}`);
   mainWindow.once("ready-to-show", () => mainWindow.show());
-
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
   });
-
   mainWindow.on("closed", () => { mainWindow = null; });
   mainWindow.on("resize", () => resizeBrowserView());
 }
 
-// ─── Embedded Browser (BrowserView) for ticket site browsing ──────────
+// ─── Embedded Browser (BrowserView) ────────────────────────────────────
+
+const DATA_PANEL_WIDTH = 380;
+const TOOLBAR_HEIGHT = 44;
 
 function resizeBrowserView() {
   if (!ticketBrowserView || !mainWindow) return;
   const bounds = mainWindow.getContentBounds();
-  // Layout: sidebar (224px) | browser | data panel (380px)
-  // Browser toolbar is 44px tall
-  const sidebarWidth = 224;
-  const dataPanelWidth = 380;
-  const toolbarHeight = 44;
   ticketBrowserView.setBounds({
     x: sidebarWidth,
-    y: toolbarHeight,
-    width: Math.max(400, bounds.width - sidebarWidth - dataPanelWidth),
-    height: bounds.height - toolbarHeight,
+    y: TOOLBAR_HEIGHT,
+    width: Math.max(300, bounds.width - sidebarWidth - DATA_PANEL_WIDTH),
+    height: bounds.height - TOOLBAR_HEIGHT,
   });
 }
 
@@ -164,75 +144,36 @@ function createBrowserView(url) {
 
   const wc = ticketBrowserView.webContents;
 
-  // Intercept network responses for ticket data
-  wc.session.webRequest.onCompleted(
-    { urls: ["*://*/*"] },
-    (details) => {
-      if (
-        details.statusCode === 200 &&
-        details.resourceType === "xhr" &&
-        details.responseHeaders &&
-        (details.responseHeaders["content-type"] ?? details.responseHeaders["Content-Type"] ?? [])
-          .some((ct) => ct.includes("json"))
-      ) {
-        // Can't read body from onCompleted, but we log the URL
-        // The actual data extraction happens via executeJavaScript below
-      }
-    }
-  );
+  wc.on("did-finish-load", () => injectCaptureScript(wc));
+  wc.on("did-navigate-in-page", () => setTimeout(() => injectCaptureScript(wc), 2000));
 
-  // Inject a capture script after each page load
-  wc.on("did-finish-load", () => {
-    injectCaptureScript(wc);
+  wc.on("did-navigate", (_, navUrl) => {
+    mainWindow?.webContents.send("browser-url-changed", navUrl);
   });
-
-  // Also inject after in-page navigation (SPA sites)
-  wc.on("did-navigate-in-page", () => {
-    setTimeout(() => injectCaptureScript(wc), 2000);
+  wc.on("did-navigate-in-page", (_, navUrl) => {
+    mainWindow?.webContents.send("browser-url-changed", navUrl);
   });
-
-  // Track URL changes
-  wc.on("did-navigate", (event, navUrl) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("browser-url-changed", navUrl);
-    }
-  });
-  wc.on("did-navigate-in-page", (event, navUrl) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("browser-url-changed", navUrl);
-    }
-  });
-
-  // Track loading state
-  wc.on("did-start-loading", () => {
-    mainWindow?.webContents.send("browser-loading", true);
-  });
-  wc.on("did-stop-loading", () => {
-    mainWindow?.webContents.send("browser-loading", false);
-  });
-
-  // Get page title
-  wc.on("page-title-updated", (event, title) => {
-    mainWindow?.webContents.send("browser-title-changed", title);
-  });
+  wc.on("did-start-loading", () => mainWindow?.webContents.send("browser-loading", true));
+  wc.on("did-stop-loading", () => mainWindow?.webContents.send("browser-loading", false));
 
   wc.loadURL(url);
 }
 
 /**
- * Inject a script into the BrowserView that intercepts XHR/fetch
- * responses and extracts ticket data, then posts it back via IPC.
+ * Inject capture script. Uses window.__ticketOpsData (NOT document.title)
+ * to avoid data leakage via referrer headers and browser history.
  */
 function injectCaptureScript(wc) {
   wc.executeJavaScript(`
     (function() {
       if (window.__ticketOpsInjected) return;
       window.__ticketOpsInjected = true;
+      window.__ticketOpsData = null;
 
-      const captured = { listings: [], eventName: '', platform: '' };
+      var captured = { listings: [], eventName: '', platform: '' };
 
       function detectPlatform() {
-        const h = location.hostname;
+        var h = location.hostname;
         if (h.includes('stubhub.com')) return 'STUBHUB';
         if (h.includes('ticketmaster.com')) return 'TICKETMASTER';
         if (h.includes('vividseats.com')) return 'VIVID_SEATS';
@@ -299,7 +240,7 @@ function injectCaptureScript(wc) {
       XMLHttpRequest.prototype.send = function() {
         this.addEventListener('load', function() {
           try {
-            if (this.responseText && this.responseText.length > 50) {
+            if (this.responseText && this.responseText.length > 50 && this.responseText.length < 5000000) {
               var data = JSON.parse(this.responseText);
               var found = extract(data, 0);
               if (found.length > 0) {
@@ -319,7 +260,7 @@ function injectCaptureScript(wc) {
           var cloned = resp.clone();
           cloned.text().then(function(text) {
             try {
-              if (text.length > 50) {
+              if (text.length > 50 && text.length < 5000000) {
                 var data = JSON.parse(text);
                 var found = extract(data, 0);
                 if (found.length > 0) {
@@ -333,7 +274,7 @@ function injectCaptureScript(wc) {
         });
       };
 
-      // Check __NEXT_DATA__
+      // Check __NEXT_DATA__ + DOM fallback
       setTimeout(function() {
         try {
           var nd = document.getElementById('__NEXT_DATA__');
@@ -346,15 +287,16 @@ function injectCaptureScript(wc) {
           }
         } catch(e) {}
 
-        // DOM fallback — find $XX text nodes
+        // DOM fallback
         try {
+          var domListings = [];
           var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
             acceptNode: function(n) {
               return /^\\$\\s?[\\d,]+(\\.\\d{2})?$/.test(n.textContent.trim())
                 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
             }
           });
-          var node, domListings = [];
+          var node;
           while (node = walker.nextNode()) {
             var t = node.textContent.trim();
             var p = parseFloat(t.replace(/[^0-9.]/g, ''));
@@ -365,10 +307,7 @@ function injectCaptureScript(wc) {
                 var ct = card ? card.textContent : '';
                 var sm = ct.match(/Section\\s+(\\S+)/i);
                 var rm = ct.match(/Row\\s+(\\S+)/i);
-                domListings.push({
-                  price: p, section: sm ? sm[1] : '', row: rm ? rm[1] : '',
-                  quantity: 1, priceWithFees: null
-                });
+                domListings.push({ price: p, section: sm?sm[1]:'', row: rm?rm[1]:'', quantity: 1, priceWithFees: null });
               }
             }
           }
@@ -382,10 +321,7 @@ function injectCaptureScript(wc) {
               if (p > 4 && p < 100000) {
                 var sm = label.match(/(?:Section|Sec)\\.?\\s+(\\S+)/i);
                 var rm = label.match(/Row\\s+(\\S+)/i);
-                domListings.push({
-                  price: p, section: sm ? sm[1] : '', row: rm ? rm[1] : '',
-                  quantity: 1, priceWithFees: null
-                });
+                domListings.push({ price: p, section: sm?sm[1]:'', row: rm?rm[1]:'', quantity: 1, priceWithFees: null });
               }
             }
           });
@@ -404,24 +340,23 @@ function injectCaptureScript(wc) {
       function sendUpdate() {
         clearTimeout(debounce);
         debounce = setTimeout(function() {
-          // Deduplicate
           var seen = {};
           var unique = captured.listings.filter(function(l) {
-            var k = l.price + '-' + l.section + '-' + l.row;
+            var k = JSON.stringify([l.price, l.section || null, l.row || null]);
             if (seen[k]) return false;
             seen[k] = true;
             return true;
           });
           captured.listings = unique;
 
-          // Post to main process via title hack (contextIsolation blocks IPC)
-          document.title = '__TICKETOPS__' + JSON.stringify({
+          // Store in window variable — safe, no referrer/history leakage
+          window.__ticketOpsData = {
             platform: captured.platform,
             eventName: captured.eventName.replace(/(\\s*[-|]\\s*(StubHub|Ticketmaster|Vivid|SeatGeek|Etix).*$)/i, '').trim(),
             url: location.href,
             listings: unique.slice(0, 500),
             count: unique.length
-          });
+          };
         }, 1000);
       }
     })();
@@ -430,22 +365,18 @@ function injectCaptureScript(wc) {
 
 // ─── IPC Handlers ──────────────────────────────────────────────────────
 
-ipcMain.handle("browser-navigate", (event, url) => {
+ipcMain.handle("browser-navigate", (_, url) => {
   if (!url.startsWith("http")) url = "https://" + url;
   createBrowserView(url);
   return true;
 });
 
 ipcMain.handle("browser-back", () => {
-  if (ticketBrowserView?.webContents.canGoBack()) {
-    ticketBrowserView.webContents.goBack();
-  }
+  if (ticketBrowserView?.webContents.canGoBack()) ticketBrowserView.webContents.goBack();
 });
 
 ipcMain.handle("browser-forward", () => {
-  if (ticketBrowserView?.webContents.canGoForward()) {
-    ticketBrowserView.webContents.goForward();
-  }
+  if (ticketBrowserView?.webContents.canGoForward()) ticketBrowserView.webContents.goForward();
 });
 
 ipcMain.handle("browser-refresh", () => {
@@ -460,16 +391,22 @@ ipcMain.handle("browser-close", () => {
   }
 });
 
-// Listen for title changes that contain captured data
+// Read captured data from window.__ticketOpsData (not document.title)
 ipcMain.handle("browser-get-data", async () => {
   if (!ticketBrowserView) return null;
   try {
-    const title = await ticketBrowserView.webContents.executeJavaScript("document.title");
-    if (title.startsWith("__TICKETOPS__")) {
-      return JSON.parse(title.replace("__TICKETOPS__", ""));
-    }
+    const data = await ticketBrowserView.webContents.executeJavaScript(
+      "window.__ticketOpsData"
+    );
+    return data || null;
   } catch {}
   return null;
+});
+
+// Sync sidebar collapse state from renderer
+ipcMain.handle("browser-set-sidebar-width", (_, width) => {
+  sidebarWidth = width;
+  resizeBrowserView();
 });
 
 // ─── App Lifecycle ─────────────────────────────────────────────────────

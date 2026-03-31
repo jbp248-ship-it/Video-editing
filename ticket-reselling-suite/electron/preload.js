@@ -1,22 +1,23 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("ticketOps", {
-  // Browser controls
   navigate: (url) => ipcRenderer.invoke("browser-navigate", url),
   back: () => ipcRenderer.invoke("browser-back"),
   forward: () => ipcRenderer.invoke("browser-forward"),
   refresh: () => ipcRenderer.invoke("browser-refresh"),
   closeBrowser: () => ipcRenderer.invoke("browser-close"),
   getData: () => ipcRenderer.invoke("browser-get-data"),
+  setSidebarWidth: (w) => ipcRenderer.invoke("browser-set-sidebar-width", w),
 
-  // Events from main process
+  // Returns unsubscribe function to prevent listener stacking
   onUrlChanged: (cb) => {
-    ipcRenderer.on("browser-url-changed", (_, url) => cb(url));
+    const handler = (_, url) => cb(url);
+    ipcRenderer.on("browser-url-changed", handler);
+    return () => ipcRenderer.off("browser-url-changed", handler);
   },
   onLoadingChanged: (cb) => {
-    ipcRenderer.on("browser-loading", (_, loading) => cb(loading));
-  },
-  onTitleChanged: (cb) => {
-    ipcRenderer.on("browser-title-changed", (_, title) => cb(title));
+    const handler = (_, loading) => cb(loading);
+    ipcRenderer.on("browser-loading", handler);
+    return () => ipcRenderer.off("browser-loading", handler);
   },
 });

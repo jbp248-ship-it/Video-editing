@@ -40,7 +40,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await scanUrl(parsed.data.url);
+    // Overall 60s timeout to prevent hanging workers
+    const scanPromise = scanUrl(parsed.data.url);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Scan timed out after 60 seconds")), 60000)
+    );
+    const result = await Promise.race([scanPromise, timeoutPromise]);
 
     // Save snapshot to database if we have an event match
     if (result.listings.length > 0) {

@@ -71,10 +71,17 @@ export async function POST(req: NextRequest) {
 
     let resolvedEventId = parsed.data.eventId ?? null;
 
-    // Auto-match by eventName if no eventId provided
+    // Auto-match by eventName if no eventId provided.
+    // Filter to upcoming events (within 90 days) to avoid matching old events.
     if (!resolvedEventId && parsed.data.eventName) {
+      const ninetyDaysFromNow = new Date();
+      ninetyDaysFromNow.setDate(ninetyDaysFromNow.getDate() + 90);
       const matched = await prisma.event.findFirst({
-        where: { name: { contains: parsed.data.eventName } },
+        where: {
+          name: { contains: parsed.data.eventName },
+          eventDate: { gte: new Date(), lte: ninetyDaysFromNow },
+        },
+        orderBy: { eventDate: "asc" },
         select: { id: true },
       });
       if (matched) resolvedEventId = matched.id;

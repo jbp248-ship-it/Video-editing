@@ -178,7 +178,10 @@ export function MarketScanner() {
     []
   );
 
-  // Handle auto-refresh interval
+  // Handle auto-refresh interval — use ref for runScan to avoid re-subscribe
+  const runScanRef = useRef(runScan);
+  runScanRef.current = runScan;
+
   useEffect(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -187,14 +190,14 @@ export function MarketScanner() {
 
     if (autoRefresh && url) {
       intervalRef.current = setInterval(() => {
-        runScan(url);
+        runScanRef.current(url);
       }, refreshInterval);
     }
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [autoRefresh, refreshInterval, url, runScan]);
+  }, [autoRefresh, refreshInterval, url]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

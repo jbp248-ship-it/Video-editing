@@ -86,19 +86,24 @@ export async function scanUrl(url: string): Promise<ScanResult> {
   const page = await context.newPage();
   const interceptedListings: ScanListing[] = [];
 
-  // Intercept ALL network responses and look for ticket data
+  // Intercept ALL network responses and look for ticket data.
+  // Race with a 5s timeout to prevent hangs on huge responses.
   page.on("response", async (response) => {
     try {
       const contentType = response.headers()["content-type"] ?? "";
       if (!contentType.includes("json")) return;
 
-      const body = await response.json();
+      const bodyPromise = response.json();
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 5000)
+      );
+      const body = await Promise.race([bodyPromise, timeoutPromise]);
       const found = extractListingsFromJson(body);
       if (found.length > 0) {
         interceptedListings.push(...found);
       }
     } catch {
-      // Not JSON or can't parse — skip
+      // Not JSON, too large, or timed out — skip
     }
   });
 
@@ -366,20 +371,24 @@ function deduplicateListings(listings: ScanListing[]): ScanListing[] {
 
 async function autoScroll(page: Page): Promise<void> {
   await page.evaluate(async () => {
-    await new Promise<void>((resolve) => {
-      let totalHeight = 0;
-      const distance = 400;
-      const timer = setInterval(() => {
-        window.scrollBy(0, distance);
-        totalHeight += distance;
-        if (totalHeight >= document.body.scrollHeight || totalHeight > 10000) {
-          clearInterval(timer);
-          window.scrollTo(0, 0);
-          resolve();
-        }
-      }, 100);
-    });
+    let lastHeight = document.body.scrollHeight;
+    let scrolled = 0;
+    while (scrolled < 15000) {
+      window.scrollBy(0, 500);
+      scrolled += 500;
+      await new Promise((r) => setTimeout(r, 300));
+      const newHeight = document.body.scrollHeight;
+      if (newHeight === lastHeight) break; // No new content loaded
+      lastHeight = newHeight;
+    }
+    window.scrollTo(0, 0);
   });
+  // Wait for lazy-loaded API responses to complete
+  try {
+    await page.waitForLoadState("networkidle", { timeout: 8000 });
+  } catch {
+    // Timeout is fine — some sites never fully idle
+  }
 }
 
 function computeStats(listings: ScanListing[]) {
