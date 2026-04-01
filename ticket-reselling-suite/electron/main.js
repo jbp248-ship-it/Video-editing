@@ -95,17 +95,23 @@ function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js"),
     },
-    show: false,
+    show: true, // Show immediately with splash screen
   });
 
-  mainWindow.loadURL(`http://localhost:${PORT}`);
-  mainWindow.once("ready-to-show", () => mainWindow.show());
+  // Load splash instantly — no waiting for Next.js
+  mainWindow.loadFile(path.join(__dirname, "loading.html"));
+
   // Keep links within the app — don't open external browser
   mainWindow.webContents.setWindowOpenHandler(() => {
     return { action: "deny" };
   });
   mainWindow.on("closed", () => { mainWindow = null; });
   mainWindow.on("resize", () => resizeBrowserView());
+}
+
+function navigateToApp() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.loadURL(`http://localhost:${PORT}`);
 }
 
 // ─── Embedded Browser (BrowserView) ────────────────────────────────────
@@ -439,11 +445,18 @@ app.on("second-instance", () => {
 app.whenReady().then(async () => {
   console.log("Starting TicketOps...");
   console.log("Database:", getDatabasePath());
+
+  // Show window immediately with splash — user sees the app right away
+  createWindow();
+
+  // Boot everything in the background
   initDatabase();
   startNextServer();
+
   try {
     await waitForServer();
-    createWindow();
+    // Swap splash → real app once Next.js is ready
+    navigateToApp();
 
     // Escape key closes the embedded browser from anywhere
     globalShortcut.register("Escape", () => {
