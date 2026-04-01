@@ -8,7 +8,121 @@ import { AlertPanel } from "@/components/AlertPanel";
 import { PriceTrendChart } from "@/components/PriceTrendChart";
 import { MarketScanner } from "@/components/MarketScanner";
 import { TicketBrowser } from "@/components/TicketBrowser";
+import { SalesHistory } from "@/components/SalesHistory";
 import type { DashboardStats } from "@/types";
+
+// ─── Platform fee defaults ────────────────────────────────────────────────────
+const PLATFORM_FEES: { key: string; label: string; defaultFee: number }[] = [
+  { key: "fee_STUBHUB", label: "StubHub", defaultFee: 15 },
+  { key: "fee_TICKETMASTER", label: "Ticketmaster", defaultFee: 12 },
+  { key: "fee_VIVID_SEATS", label: "Vivid Seats", defaultFee: 10 },
+  { key: "fee_SEATGEEK", label: "SeatGeek", defaultFee: 12 },
+  { key: "fee_ETIX", label: "Etix", defaultFee: 10 },
+];
+
+// ─── Settings Panel ───────────────────────────────────────────────────────────
+function SettingsPanel() {
+  const [fees, setFees] = useState<Record<string, string>>(() => {
+    const defaults: Record<string, string> = {};
+    for (const p of PLATFORM_FEES) {
+      defaults[p.key] = String(p.defaultFee);
+    }
+    return defaults;
+  });
+  const [savedKeys, setSavedKeys] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState<Record<string, boolean>>({});
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/settings")
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json() as Promise<Record<string, string>>;
+      })
+      .then((data) => {
+        setFees((prev) => {
+          const merged = { ...prev };
+          for (const p of PLATFORM_FEES) {
+            if (data[p.key] !== undefined) {
+              merged[p.key] = data[p.key];
+            }
+          }
+          return merged;
+        });
+      })
+      .catch((err) => setLoadError(err.message));
+  }, []);
+
+  const handleSave = async (key: string) => {
+    setSaving((s) => ({ ...s, [key]: true }));
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key, value: fees[key] }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setSavedKeys((s) => ({ ...s, [key]: true }));
+      setTimeout(() => setSavedKeys((s) => ({ ...s, [key]: false })), 2000);
+    } catch {
+      // silently ignore — user can retry
+    } finally {
+      setSaving((s) => ({ ...s, [key]: false }));
+    }
+  };
+
+  return (
+    <div className="card max-w-2xl space-y-6">
+      <h2 className="text-lg font-semibold text-warm-900">Fee Configuration</h2>
+      <p className="text-sm text-warm-500">
+        Adjust platform fee percentages to match your seller tier. Changes are
+        saved per platform.
+      </p>
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Could not load saved settings: {loadError}
+        </div>
+      )}
+      <div className="space-y-3">
+        {PLATFORM_FEES.map((p) => (
+          <div
+            key={p.key}
+            className="flex items-center justify-between py-3 border-b border-warm-200 gap-4"
+          >
+            <span className="font-medium text-warm-900 w-36 shrink-0">
+              {p.label}
+            </span>
+            <div className="flex items-center gap-2 flex-1">
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                className="w-24 rounded-lg border border-warm-200 bg-warm-50 px-3 py-1.5 text-sm text-warm-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20 text-right"
+                value={fees[p.key] ?? String(p.defaultFee)}
+                onChange={(e) =>
+                  setFees((prev) => ({ ...prev, [p.key]: e.target.value }))
+                }
+              />
+              <span className="text-sm text-warm-500">%</span>
+            </div>
+            <button
+              className={
+                savedKeys[p.key]
+                  ? "btn-ghost text-xs text-green-600 border-green-200"
+                  : "btn-primary text-xs"
+              }
+              disabled={saving[p.key]}
+              onClick={() => handleSave(p.key)}
+            >
+              {savedKeys[p.key] ? "Saved!" : saving[p.key] ? "Saving…" : "Save"}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -22,6 +136,7 @@ export default function DashboardPage() {
   const [alertCount, setAlertCount] = useState(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [inventoryFilter, setInventoryFilter] = useState("ALL");
   const [saleModal, setSaleModal] = useState<string | null>(null);
   const [saleForm, setSaleForm] = useState({
     price: "",
@@ -219,25 +334,33 @@ export default function DashboardPage() {
               <div className="flex items-center gap-3 mb-4">
                 {["ALL", "IN_HAND", "LISTED", "PENDING_REMOVAL", "SOLD"].map(
                   (s) => (
-                    <button key={s} className="btn-ghost text-xs">
+                    <button
+                      key={s}
+                      className={
+                        inventoryFilter === s
+                          ? "btn-primary text-xs"
+                          : "btn-ghost text-xs"
+                      }
+                      onClick={() => setInventoryFilter(s)}
+                    >
                       {s.replace(/_/g, " ")}
                     </button>
                   )
                 )}
               </div>
               <InventoryTable
-                items={inventory}
+                items={
+                  inventoryFilter === "ALL"
+                    ? inventory
+                    : inventory.filter((item) => item.status === inventoryFilter)
+                }
                 onRecordSale={handleRecordSale}
               />
             </>
           )}
 
           {/* Sales View */}
-          {activeTab === "sales" && (
-            <div className="card text-center py-12 text-warm-500">
-              Sales history will appear here once you record your first sale.
-            </div>
-          )}
+          {activeTab === "sales" && <SalesHistory />}
 
           {/* Browse Sites View */}
           {activeTab === "browse" && <TicketBrowser />}
@@ -255,31 +378,7 @@ export default function DashboardPage() {
           )}
 
           {/* Settings View */}
-          {activeTab === "settings" && (
-            <div className="card max-w-2xl space-y-6">
-              <h2 className="text-lg font-semibold text-warm-900">Fee Configuration</h2>
-              <p className="text-sm text-warm-500">
-                Adjust platform fee percentages to match your seller tier.
-              </p>
-              <div className="space-y-3">
-                {[
-                  { name: "StubHub", fee: "15%" },
-                  { name: "Ticketmaster", fee: "12% + 3% processing" },
-                  { name: "Vivid Seats", fee: "10%" },
-                  { name: "SeatGeek", fee: "12%" },
-                  { name: "Etix", fee: "10% + 2% processing" },
-                ].map((p) => (
-                  <div
-                    key={p.name}
-                    className="flex items-center justify-between py-2 border-b border-warm-200"
-                  >
-                    <span className="font-medium text-warm-900">{p.name}</span>
-                    <span className="text-sm text-warm-500">{p.fee}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {activeTab === "settings" && <SettingsPanel />}
         </div>
       </main>
 
