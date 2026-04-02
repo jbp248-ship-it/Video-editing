@@ -236,11 +236,16 @@ export async function scanUrl(url: string): Promise<ScanResult> {
 
     const stats = computeStats(allListings);
 
+    // Prefer platform-specific totalTicketsRemaining if available
+    if (platformResult.totalTicketsRemaining != null && stats.totalTicketsRemaining == null) {
+      stats.totalTicketsRemaining = platformResult.totalTicketsRemaining;
+    }
+
     return {
       eventName: cleanEventName(eventInfo.eventName),
       venue: eventInfo.venue,
       date: eventInfo.date,
-      platform: detectPlatform(url),
+      platform,
       listings: allListings.sort((a, b) => a.price - b.price),
       stats,
       scannedAt: new Date().toISOString(),
@@ -491,12 +496,18 @@ function computeStats(listings: ScanListing[]) {
       ? (prices[mid - 1] + prices[mid]) / 2
       : prices[mid];
 
+  const totalTicketsRemaining = listings.reduce((acc, l) => {
+    if (l.ticketsRemaining != null) return acc + l.ticketsRemaining;
+    return acc;
+  }, 0);
+
   return {
     getInPrice: prices[0],
     medianPrice: Math.round(median * 100) / 100,
     averagePrice: Math.round((sum / prices.length) * 100) / 100,
     maxPrice: prices[prices.length - 1],
     totalListings: listings.length,
+    totalTicketsRemaining: totalTicketsRemaining > 0 ? totalTicketsRemaining : null,
   };
 }
 
