@@ -485,6 +485,45 @@ ipcMain.handle("browser-set-top-offset", (_, offset) => {
   resizeBrowserView();
 });
 
+// ─── Auto-Update via git pull ─────────────────────────────────────────
+ipcMain.handle("app-check-update", async () => {
+  try {
+    const cwd = getProjectRoot();
+    // Fetch latest from remote
+    execSync("git fetch origin", { cwd, shell: true, stdio: "pipe", timeout: 15000 });
+    // Check if we're behind
+    const status = execSync("git status -uno", { cwd, shell: true, stdio: "pipe", timeout: 5000 }).toString();
+    const behind = status.includes("behind");
+    return { available: behind, current: app.getVersion() };
+  } catch (err) {
+    return { available: false, error: err.message };
+  }
+});
+
+ipcMain.handle("app-install-update", async () => {
+  try {
+    const cwd = getProjectRoot();
+    // Pull latest code
+    execSync("git pull origin", { cwd, shell: true, stdio: "pipe", timeout: 30000 });
+    // Regenerate Prisma client in case schema changed
+    execSync("npx prisma generate", { cwd, shell: true, stdio: "pipe", timeout: 30000 });
+    // Push any DB schema changes
+    execSync("npx prisma db push --skip-generate", { cwd, env: getEnv(), shell: true, stdio: "pipe", timeout: 30000 });
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("app-restart", () => {
+  app.relaunch();
+  app.exit(0);
+});
+
+ipcMain.handle("app-get-version", () => {
+  return { version: app.getVersion(), isDev };
+});
+
 // ─── App Lifecycle ─────────────────────────────────────────────────────
 
 app.on("second-instance", () => {

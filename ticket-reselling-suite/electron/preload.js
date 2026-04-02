@@ -27,4 +27,10 @@ contextBridge.exposeInMainWorld("ticketOps", {
     ipcRenderer.on("browser-closed", handler);
     return () => ipcRenderer.off("browser-closed", handler);
   },
+
+  // Auto-update
+  checkUpdate: () => ipcRenderer.invoke("app-check-update"),
+  installUpdate: () => ipcRenderer.invoke("app-install-update"),
+  restartApp: () => ipcRenderer.invoke("app-restart"),
+  getVersion: () => ipcRenderer.invoke("app-get-version"),
 });

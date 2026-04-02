@@ -74,8 +74,108 @@ function SettingsPanel() {
     }
   };
 
+  // ── Update state ──
+  const [updateStatus, setUpdateStatus] = useState<string>("idle"); // idle | checking | available | updating | done | error
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
+  const checkForUpdate = async () => {
+    setUpdateStatus("checking");
+    setUpdateError(null);
+    try {
+      const w = window as any;
+      const result = await w.ticketOps?.checkUpdate?.();
+      if (result?.available) {
+        setUpdateStatus("available");
+      } else if (result?.error) {
+        setUpdateError(result.error);
+        setUpdateStatus("error");
+      } else {
+        setUpdateStatus("idle");
+      }
+    } catch {
+      setUpdateStatus("error");
+      setUpdateError("Could not check for updates");
+    }
+  };
+
+  const installUpdate = async () => {
+    setUpdateStatus("updating");
+    setUpdateError(null);
+    try {
+      const w = window as any;
+      const result = await w.ticketOps?.installUpdate?.();
+      if (result?.success) {
+        setUpdateStatus("done");
+      } else {
+        setUpdateError(result?.error ?? "Update failed");
+        setUpdateStatus("error");
+      }
+    } catch {
+      setUpdateStatus("error");
+      setUpdateError("Update failed");
+    }
+  };
+
+  const restartApp = () => {
+    const w = window as any;
+    w.ticketOps?.restartApp?.();
+  };
+
   return (
-    <div className="card max-w-2xl space-y-6">
+    <div className="space-y-6 max-w-2xl">
+      {/* ── Update Section ── */}
+      <div className="card space-y-4">
+        <h2 className="text-lg font-semibold text-warm-900">App Updates</h2>
+        <p className="text-sm text-warm-500">
+          Check for the latest features and bug fixes.
+        </p>
+        <div className="flex items-center gap-3">
+          {updateStatus === "idle" && (
+            <button className="btn-primary" onClick={checkForUpdate}>
+              Check for Updates
+            </button>
+          )}
+          {updateStatus === "checking" && (
+            <button className="btn-ghost" disabled>
+              Checking...
+            </button>
+          )}
+          {updateStatus === "available" && (
+            <button className="btn-primary" onClick={installUpdate}>
+              Download &amp; Install Update
+            </button>
+          )}
+          {updateStatus === "updating" && (
+            <button className="btn-ghost" disabled>
+              Updating... please wait
+            </button>
+          )}
+          {updateStatus === "done" && (
+            <button className="btn-primary" onClick={restartApp}>
+              Restart to Apply Update
+            </button>
+          )}
+          {updateStatus === "error" && (
+            <>
+              <button className="btn-primary" onClick={checkForUpdate}>
+                Retry
+              </button>
+              {updateError && <span className="text-xs text-red-600">{updateError}</span>}
+            </>
+          )}
+          {updateStatus === "idle" && (
+            <span className="text-xs text-green-600">You&apos;re up to date</span>
+          )}
+        </div>
+        {updateStatus === "done" && (
+          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            Update downloaded! Click &quot;Restart to Apply Update&quot; to use the latest version.
+          </div>
+        )}
+      </div>
+
+      {/* ── Fee Configuration ── */}
+      <div className="card space-y-6">
       <h2 className="text-lg font-semibold text-warm-900">Fee Configuration</h2>
       <p className="text-sm text-warm-500">
         Adjust platform fee percentages to match your seller tier. Changes are
@@ -127,6 +227,7 @@ function SettingsPanel() {
             </button>
           </div>
         ))}
+      </div>
       </div>
     </div>
   );
