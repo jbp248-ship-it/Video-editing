@@ -24,11 +24,11 @@ export async function POST(req: NextRequest) {
       if (snaps.length < 3) continue;
 
       // Check for 3 consecutive floor price drops
-      const prices = snaps.slice(0, 3).map((s: any) => s.getInPrice);
+      const prices = snaps.slice(0, 3).map((s: any) => Number(s.getInPrice ?? 0));
       const isDropping = prices[0] < prices[1] && prices[1] < prices[2];
 
       if (isDropping && event.inventory.length > 0) {
-        const dropPct = ((prices[2] - prices[0]) / prices[2] * 100).toFixed(1);
+        const dropPct = prices[2] > 0 ? ((prices[2] - prices[0]) / prices[2] * 100).toFixed(1) : "0.0";
 
         // Don't create duplicate alerts
         const existing = await prisma.alert.findFirst({

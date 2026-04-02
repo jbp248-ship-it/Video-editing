@@ -47,13 +47,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const totalRevenue = allSales.reduce((s: number, sale: any) => s + sale.netRevenue, 0);
-    const totalProfit = allSales.reduce((s: number, sale: any) => s + sale.netProfit, 0);
+    const totalRevenue = allSales.reduce((s: number, sale: any) => s + (sale.netRevenue ?? 0), 0);
+    const totalProfit = allSales.reduce((s: number, sale: any) => s + (sale.netProfit ?? 0), 0);
     const totalFees = allSales.reduce(
-      (s: number, sale: any) => s + sale.platformFee + sale.processingFee, 0
+      (s: number, sale: any) => s + (sale.platformFee ?? 0) + (sale.processingFee ?? 0), 0
     );
     const soldCapital = allSales.reduce(
-      (s: number, sale: any) => s + sale.inventory.purchasePrice * sale.quantitySold, 0
+      (s: number, sale: any) => s + (sale.inventory?.purchasePrice ?? 0) * (sale.quantitySold ?? 0), 0
     );
     const allTimeROI = soldCapital > 0
       ? (totalProfit / soldCapital) * 100
@@ -62,14 +62,15 @@ export async function GET(req: NextRequest) {
     // ── Per-Platform Breakdown ──
     const platformMap: Record<string, { sales: number; revenue: number; profit: number; fees: number }> = {};
     for (const sale of allSales) {
-      if (!platformMap[sale.platform]) {
-        platformMap[sale.platform] = { sales: 0, revenue: 0, profit: 0, fees: 0 };
+      const platform = sale.platform ?? "UNKNOWN";
+      if (!platformMap[platform]) {
+        platformMap[platform] = { sales: 0, revenue: 0, profit: 0, fees: 0 };
       }
-      const p = platformMap[sale.platform];
+      const p = platformMap[platform];
       p.sales++;
-      p.revenue += sale.netRevenue;
-      p.profit += sale.netProfit;
-      p.fees += sale.platformFee + sale.processingFee;
+      p.revenue += sale.netRevenue ?? 0;
+      p.profit += sale.netProfit ?? 0;
+      p.fees += (sale.platformFee ?? 0) + (sale.processingFee ?? 0);
     }
     const platformBreakdown = Object.entries(platformMap).map(([platform, data]) => ({
       platform,
@@ -89,8 +90,8 @@ export async function GET(req: NextRequest) {
       const d = new Date(sale.saleDate);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       if (monthlyMap[key]) {
-        monthlyMap[key].revenue += sale.netRevenue;
-        monthlyMap[key].profit += sale.netProfit;
+        monthlyMap[key].revenue += sale.netRevenue ?? 0;
+        monthlyMap[key].profit += sale.netProfit ?? 0;
         monthlyMap[key].sales++;
       }
     }
@@ -109,8 +110,9 @@ export async function GET(req: NextRequest) {
     // ── Top Events by Profit ──
     const eventProfitMap: Record<string, { name: string; profit: number; revenue: number; sales: number }> = {};
     for (const sale of allSales) {
-      const eid = sale.inventory.eventId;
-      const ename = sale.inventory.event?.name ?? "Unknown";
+      const eid = sale.inventory?.eventId;
+      if (!eid) continue;
+      const ename = sale.inventory?.event?.name ?? "Unknown";
       if (!eventProfitMap[eid]) {
         eventProfitMap[eid] = { name: ename, profit: 0, revenue: 0, sales: 0 };
       }
