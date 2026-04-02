@@ -362,6 +362,37 @@ NOTES_PAGE_HTML = """<!DOCTYPE html>
 </div>
 
 <script>
+// ── XSS escaping ────────────────────────────────────────────────────────
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// ── Fetch with per-request timeout ──────────────────────────────────────
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 30000) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        clearTimeout(id);
+        return res;
+    } catch (e) {
+        clearTimeout(id);
+        throw e;
+    }
+}
+
+// ── In-flight guard ──────────────────────────────────────────────────────
+
+const _inFlight = {};
+
 // ── Tab navigation ──────────────────────────────────────────────────────
 
 function showTab(name) {
@@ -386,6 +417,8 @@ function showInnerTab(name) {
 
 function renderMarkdown(text) {
     if (!text) return '';
+    // Normalize numbered lists to bullet lists before processing
+    text = text.replace(/^\d+\.\s+/gm, '- ');
     let html = text
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         // Headers
