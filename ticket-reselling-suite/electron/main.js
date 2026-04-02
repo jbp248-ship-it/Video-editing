@@ -407,7 +407,148 @@ function injectCaptureScript(wc) {
           }
         } catch(e) {}
 
-        // DOM fallback
+        // ── ETIX-SPECIFIC EXTRACTION ──
+        // Etix shows price TIERS not individual listings.
+        // Each tier can have hundreds of tickets. We need to:
+        // 1. Find all price tiers from the page
+        // 2. Check quantity selectors for max available per tier
+        // 3. Look for availability text ("X remaining", "Limited", etc.)
+        if (captured.platform === 'ETIX') {
+          try {
+            var etixListings = [];
+
+            // Strategy 1: Find Etix ticket type/tier blocks
+            // Etix shows sections as clickable areas with prices
+            var priceBlocks = document.querySelectorAll(
+              '[class*="price" i], [class*="tier" i], [class*="ticket-type" i], ' +
+              '[class*="level" i], [class*="section" i], [class*="category" i], ' +
+              '.ticket-selection, .price-level, .seat-section, ' +
+              'table tr, li, [role="option"], [role="listitem"]'
+            );
+
+            priceBlocks.forEach(function(block) {
+              var text = block.textContent || '';
+              var priceMatch = text.match(/\$\s?([\d,]+(?:\.\d{2})?)/);
+              if (!priceMatch) return;
+              var price = parseFloat(priceMatch[1].replace(/,/g, ''));
+              if (!price || price < 3 || price > 100000) return;
+
+              // Find section/tier name
+              var sectionName = '';
+              var nameEl = block.querySelector('[class*="name" i], [class*="title" i], [class*="label" i], [class*="tier" i], th, strong, b');
+              if (nameEl) sectionName = nameEl.textContent.trim();
+              if (!sectionName) {
+                // Try to get from parent or preceding sibling
+                var prev = block.previousElementSibling;
+                if (prev && !prev.textContent.match(/\$/)) sectionName = prev.textContent.trim();
+              }
+
+              // Find quantity available
+              var qtyAvailable = null;
+
+              // Check for quantity dropdown (select element) - max option = max available
+              var select = block.querySelector('select, [class*="qty" i], [class*="quantity" i]');
+              if (select && select.tagName === 'SELECT') {
+                var options = select.querySelectorAll('option');
+                var maxQty = 0;
+                options.forEach(function(opt) {
+                  var v = parseInt(opt.value || opt.textContent, 10);
+                  if (v > maxQty) maxQty = v;
+                });
+                if (maxQty > 0) qtyAvailable = maxQty;
+              }
+
+              // Check for "X remaining/available/left" text
+              var remMatch = text.match(/(\d+)\s*(?:tickets?|seats?)?\s*(?:remaining|available|left)/i);
+              if (remMatch) qtyAvailable = parseInt(remMatch[1], 10);
+
+              // Check for "Limited" or "Few Left" (estimate low availability)
+              if (!qtyAvailable && /limited|few left|almost gone|selling fast/i.test(text)) {
+                qtyAvailable = 10; // Conservative estimate
+              }
+
+              // Check for "Sold Out" - skip this tier
+              if (/sold\s*out|unavailable|not available/i.test(text)) {
+                return; // Don't add sold out tiers
+              }
+
+              // Check for input[type=number] with max attribute
+              var numInput = block.querySelector('input[type="number"]');
+              if (numInput) {
+                var max = parseInt(numInput.getAttribute('max') || '0', 10);
+                if (max > 0) qtyAvailable = max;
+              }
+
+              etixListings.push({
+                price: price,
+                section: sectionName.replace(/\$[\d,.]+/g, '').trim().substring(0, 50) || 'General',
+                row: '',
+                quantity: qtyAvailable || 1,
+                priceWithFees: price, // Etix uses all-in pricing
+                ticketsRemaining: qtyAvailable
+              });
+            });
+
+            // Strategy 2: Check for Etix's JavaScript variables
+            // Etix sometimes stores availability in window-level objects
+            try {
+              var scripts = document.querySelectorAll('script:not([src])');
+              scripts.forEach(function(script) {
+                var code = script.textContent || '';
+                // Look for availability/capacity data in script tags
+                var capMatch = code.match(/(?:capacity|totalSeats|maxTickets|availableTickets|ticketsAvailable)\s*[=:]\s*(\d+)/i);
+                if (capMatch) {
+                  var capacity = parseInt(capMatch[1], 10);
+                  if (capacity > 0 && capacity < 200000) {
+                    // Store as metadata on captured data
+                    captured.etixCapacity = capacity;
+                  }
+                }
+                // Look for inventory/availability arrays
+                var invMatch = code.match(/(?:inventory|availability|priceLevels|tiers)\s*[=:]\s*(\[[\s\S]*?\])/);
+                if (invMatch) {
+                  try {
+                    var invData = JSON.parse(invMatch[1]);
+                    if (Array.isArray(invData)) {
+                      invData.forEach(function(item) {
+                        if (item && (item.price || item.amount || item.cost)) {
+                          var p = toNum(item.price || item.amount || item.cost);
+                          if (p && p > 0) {
+                            etixListings.push({
+                              price: p,
+                              section: String(item.name || item.section || item.tier || item.label || 'General'),
+                              row: '',
+                              quantity: toNum(item.available || item.remaining || item.qty || item.quantity) || 1,
+                              priceWithFees: p,
+                              ticketsRemaining: toNum(item.available || item.remaining || item.qty || item.quantity) || null
+                            });
+                          }
+                        }
+                      });
+                    }
+                  } catch(e2) {}
+                }
+              });
+            } catch(e3) {}
+
+            // Strategy 3: Look at the "Pricing from $X to $Y" text to identify it's a tier listing
+            var pricingText = document.body.innerText;
+            var pricingRange = pricingText.match(/Pricing from \$([\d,.]+) to \$([\d,.]+)/i);
+            if (pricingRange && etixListings.length === 0) {
+              // We know prices but no listings found - create tier placeholders
+              // and mark that availability is unknown (needs section click)
+              captured.etixNote = 'Click a section on the map to see available tickets per tier';
+            }
+
+            // Replace generic DOM listings with Etix-specific ones if we found any
+            if (etixListings.length > 0) {
+              captured.listings = etixListings;
+              sendUpdate();
+            }
+          } catch(etixErr) {}
+        }
+
+        // DOM fallback (non-Etix or if Etix extraction found nothing)
         try {
           var domListings = [];
           var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
@@ -460,6 +601,60 @@ function injectCaptureScript(wc) {
       captured.platform = detectPlatform();
       captured.eventName = (document.querySelector('h1') || {}).textContent || document.title;
 
+      // Re-scan on DOM changes (e.g., user clicks a section on Etix, new data loads)
+      if (captured.platform === 'ETIX') {
+        var observer = new MutationObserver(function() {
+          // Debounced re-extraction when Etix page changes (section selected, modal opened)
+          clearTimeout(captured._rescanTimer);
+          captured._rescanTimer = setTimeout(function() {
+            // Look for newly visible quantity selectors or availability text
+            var selects = document.querySelectorAll('select');
+            selects.forEach(function(sel) {
+              var options = sel.querySelectorAll('option');
+              var maxQty = 0;
+              options.forEach(function(opt) {
+                var v = parseInt(opt.value || opt.textContent, 10);
+                if (v > maxQty) maxQty = v;
+              });
+              if (maxQty > 1) {
+                // Found a quantity selector with real data
+                var parent = sel.closest('[class*="ticket" i], [class*="section" i], tr, li, div') || sel.parentElement;
+                var priceText = parent ? parent.textContent : '';
+                var pm = priceText.match(/\$\s?([\d,]+(?:\.\d{2})?)/);
+                if (pm) {
+                  var price = parseFloat(pm[1].replace(/,/g, ''));
+                  if (price > 3) {
+                    // Update existing listing or add new one
+                    var found = false;
+                    for (var i = 0; i < captured.listings.length; i++) {
+                      if (Math.abs(captured.listings[i].price - price) < 0.01) {
+                        captured.listings[i].ticketsRemaining = maxQty;
+                        captured.listings[i].quantity = maxQty;
+                        found = true;
+                        break;
+                      }
+                    }
+                    if (!found) {
+                      captured.listings.push({
+                        price: price,
+                        section: 'Selected Section',
+                        row: '',
+                        quantity: maxQty,
+                        priceWithFees: price,
+                        ticketsRemaining: maxQty
+                      });
+                    }
+                    captured.etixNote = null; // Clear the "click to see" note
+                    sendUpdate();
+                  }
+                }
+              }
+            });
+          }, 1500);
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
+
       var debounce = null;
       function sendUpdate() {
         clearTimeout(debounce);
@@ -490,7 +685,9 @@ function injectCaptureScript(wc) {
             url: location.href,
             listings: unique.slice(0, 500),
             count: unique.length,
-            totalTicketsRemaining: hasRemaining ? totalRemaining : null
+            totalTicketsRemaining: hasRemaining ? totalRemaining : null,
+            estimatedCapacity: captured.etixCapacity || null,
+            note: captured.etixNote || null
           };
         }, 1000);
       }

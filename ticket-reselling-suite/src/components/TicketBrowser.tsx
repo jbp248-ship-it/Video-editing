@@ -12,8 +12,12 @@ interface CapturedData {
     row: string;
     quantity: number;
     priceWithFees: number | null;
+    ticketsRemaining?: number | null;
   }>;
   count: number;
+  totalTicketsRemaining?: number | null;
+  estimatedCapacity?: number | null;
+  note?: string | null;
 }
 
 interface ScanHistoryEntry {
@@ -684,6 +688,8 @@ export function TicketBrowser() {
                         { label: "Median", value: fmt(stats.median), highlight: false },
                         { label: "Average", value: fmt(stats.avg), highlight: false },
                         { label: "Listings", value: stats.total.toLocaleString(), highlight: false },
+                        ...(data?.totalTicketsRemaining != null ? [{ label: "Tickets Left", value: String(data.totalTicketsRemaining), highlight: true }] : []),
+                        ...(data?.estimatedCapacity != null ? [{ label: "Capacity", value: data.estimatedCapacity.toLocaleString(), highlight: false }] : []),
                       ].map((s) => (
                         <div
                           key={s.label}
@@ -708,6 +714,13 @@ export function TicketBrowser() {
                         </div>
                       ))}
                     </div>
+
+                    {/* Etix/platform note */}
+                    {data?.note && (
+                      <div className="rounded-lg px-3 py-2 text-xs" style={{ backgroundColor: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A" }}>
+                        {data.note}
+                      </div>
+                    )}
 
                     {/* Listings table */}
                     <div>
