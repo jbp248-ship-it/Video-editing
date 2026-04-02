@@ -1,13 +1,11 @@
 """
-TikTok Video Clipper — Web App
+TicketOps — Desktop & Web App
 
-A mobile-friendly web interface for the video clipper pipeline.
-Upload a video, pick your settings, and download viral clips.
+Video clipper, AI note-taker, and study tools in one app.
 
 Usage:
-    python3 app.py
-
-Then open http://localhost:5000 on your phone or computer.
+    Desktop:  python desktop.py
+    Web:      python app.py   (then open http://localhost:5000)
 """
 
 import os
@@ -74,7 +72,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>TikTok Video Clipper</title>
+    <title>TicketOps</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -376,7 +374,7 @@ HTML_TEMPLATE = """
 
     <!-- HEADER -->
     <div class="logo">
-        <h1>TikTok Video Clipper</h1>
+        <h1>TicketOps</h1>
         <p>Upload a long video, get viral clips back</p>
         <a href="/notes" style="display:inline-block;margin-top:10px;padding:8px 20px;background:#111;border:1px solid #333;border-radius:8px;color:#25f4ee;font-size:13px;text-decoration:none;">My Notes &amp; Study Tools</a>
     </div>
@@ -1041,15 +1039,13 @@ if __name__ == "__main__":
 
     print()
     print("=" * 50)
-    print("  TikTok Video Clipper")
+    print("  TicketOps  (web mode)")
     print("=" * 50)
     print()
-    print("  Open this on your phone or computer:")
+    print("  For the desktop app, run:  python desktop.py")
     print()
+    print("  Or open in your browser:")
     print("  http://localhost:5000")
-    print()
-    print("  On your phone (same WiFi network):")
-    print("  http://<your-computer-ip>:5000")
     print()
     print("  Press Ctrl+C to stop")
     print("=" * 50)

@@ -15,8 +15,8 @@ from pathlib import Path
 def main():
     print()
     print("=" * 50)
-    print("  TikTok Video Clipper")
-    print("  Turn long videos into viral TikTok clips!")
+    print("  TicketOps")
+    print("  Video Clipper + AI Notes + Study Tools")
     print("=" * 50)
     print()
 

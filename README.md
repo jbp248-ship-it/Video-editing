@@ -1,15 +1,12 @@
-# TikTok Video Clipper
+# TicketOps
 
-Automatically converts long-form videos into multiple short-form TikTok clips optimized for virality.
+Desktop app for video clipping, AI note-taking, and study tools — all in one.
 
 ## What It Does
 
-1. **Ingests** a long video (10-120 min) in MP4/MOV/MKV format
-2. **Segments** it into 60-120 second clips using content-aware analysis (not fixed intervals)
-3. **Scores** each clip for viral potential using hook strength, emotional intensity, speech pace, completeness, and surprise
-4. **Adds captions** — word-level timed, TikTok-styled, with keyword highlighting
-5. **Adds headers** — auto-generated attention-grabbing text at the top
-6. **Exports** vertical (9:16, 1080x1920) clips ready for TikTok upload
+- **Video Clipper** — Converts long videos into short-form TikTok clips with captions, headers, and virality scoring
+- **AI Note Taker** — Generates structured meeting notes with speaker identification, action items, and decisions
+- **Study Tools** — Creates summaries, study guides, and quizzes from your notes
 
 ## Setup
 
@@ -24,6 +21,11 @@ Automatically converts long-form videos into multiple short-form TikTok clips op
 pip install -r requirements.txt
 ```
 
+On Linux, for the desktop app you also need:
+```bash
+sudo apt install python3-gi gir1.2-webkit2-4.1
+```
+
 For GPU-accelerated Whisper transcription, install PyTorch with CUDA support first:
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu118
@@ -31,7 +33,23 @@ pip install torch --index-url https://download.pytorch.org/whl/cu118
 
 ## Usage
 
-### Single Video
+### Desktop App (recommended)
+
+```bash
+python desktop.py
+```
+
+Options: `--debug`, `--fullscreen`, `--width 1440`, `--height 900`
+
+### Web Mode (browser)
+
+```bash
+python app.py
+```
+
+Then open http://localhost:5000
+
+### CLI — Single Video
 
 ```bash
 python pipeline.py video.mp4
@@ -99,14 +117,23 @@ Each clip includes:
 ## Architecture
 
 ```
-pipeline.py          # Orchestrator — run this
+desktop.py           # Desktop app launcher (pywebview)
+app.py               # Flask web server (all routes & UI)
+pipeline.py          # Video processing orchestrator
 ├── config.py        # All tunable parameters
 ├── ingestion.py     # Video validation & audio extraction
 ├── segmentation.py  # Content-aware clip boundary detection
 ├── scoring.py       # Virality ranking algorithm
 ├── captions.py      # Caption generation & styling
 ├── rendering.py     # ffmpeg clip export with overlays
-└── tiktok_upload.py # Upload prep & API placeholders
+├── tiktok_upload.py # Upload prep & API placeholders
+├── note_taker.py    # AI meeting notes engine
+├── speaker_id.py    # Speaker diarization
+├── nlp_engine.py    # NLP analysis & entity extraction
+├── note_export.py   # Multi-format export
+├── notes_store.py   # Notes persistence
+├── study_engine.py  # Summary, guide, quiz generation
+└── study_templates.py # Study UI templates
 ```
 
 ## How Virality Scoring Works
