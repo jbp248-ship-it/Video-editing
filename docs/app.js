@@ -210,7 +210,7 @@ function renderHome() {
     if (m.length) { renderSearchResults(m); return; }
   }
 
-  let h = `<div class="greeting"><h2>${greet}, <span>Justin</span></h2><p>What are we learning today?</p></div>`;
+  let h = `<div class="greeting"><h2>${greet}, <span>Justin</span></h2><p>What are we learning today?</p>${notes.length ? '<div style="margin-top:12px"><button class="btn" id="insightsBtn" style="margin:0 auto;display:block">View Cross-Lecture Insights</button></div>' : ''}</div>`;
   h += `<div class="section-title">My Courses</div><div class="grid">`;
 
   courses.forEach((c, i) => {
@@ -268,6 +268,20 @@ function renderHome() {
     else { addForm.classList.remove("v"); addBtn.style.display = "flex"; }
   };
   if ($("addInput")) $("addInput").onkeydown = e => { if (e.key === "Enter") $("addOk").click(); if (e.key === "Escape") { addForm.classList.remove("v"); addBtn.style.display = "flex"; } };
+
+  if ($("insightsBtn")) $("insightsBtn").onclick = () => {
+    const insights = crossMeetingInsights(notes);
+    ct.innerHTML = `<div class="detail-hdr"><h2>Cross-Lecture Insights</h2>
+      <div class="detail-actions"><button class="btn" id="backInsights">&larr; Back</button></div></div>
+      <div class="transcript-box"><h3 style="color:#D97757;margin-bottom:12px">Recurring Topics</h3>
+      ${insights.recurringTopics.map(t => `<div style="margin-bottom:4px">• <strong>${t.term}</strong> — appears in ${t.count} lectures</div>`).join("")}
+      <h3 style="color:#D97757;margin:16px 0 12px">Topic Progression</h3>
+      ${insights.progression.map(t => `<div style="margin-bottom:4px">→ ${t}</div>`).join("") || "<div style='color:#8B7E75'>Not enough data yet</div>"}
+      <h3 style="color:#D97757;margin:16px 0 12px">Knowledge Gaps</h3>
+      ${insights.gaps.map(t => `<div style="margin-bottom:4px">⚠ <strong>${t.term}</strong> — mentioned once, never revisited</div>`).join("") || "<div style='color:#8B7E75'>No gaps detected</div>"}
+      </div>`;
+    $("backInsights").onclick = () => { navigate("home"); };
+  };
 }
 
 function renderSearchResults(m) {
@@ -402,6 +416,8 @@ function renderDetail() {
       <button class="btn btn-pri" id="copyAll">Copy Transcript</button>
       <button class="btn" id="sumBtn">Summarize</button>
       <button class="btn" id="guideBtn">Study Guide</button>
+      <button class="btn" id="quizBtn">Quiz Me</button>
+      <button class="btn" id="flashBtn">Flashcards</button>
       <button class="btn" id="exp">Export .md</button>
       <button class="btn btn-dng" id="del">Delete</button>
     </div></div>
@@ -429,6 +445,49 @@ function renderDetail() {
     div.className = "summary-box guide-box";
     div.innerHTML = "<h3>Study Guide</h3>" + esc(guide).replace(/\n/g, "<br>");
     ct.appendChild(div);
+  };
+
+  if ($("quizBtn")) $("quizBtn").onclick = () => {
+    const clean = typeof cleanTranscript === 'function' ? cleanTranscript(n.transcript || "") : (n.transcript || "");
+    const questions = generateQuiz(clean, 8);
+    const existing = document.querySelector(".quiz-box");
+    if (existing) existing.remove();
+    const div = document.createElement("div");
+    div.className = "quiz-box";
+    div.innerHTML = renderQuizHTML(questions);
+    ct.appendChild(div);
+    // Wire up check buttons
+    div.querySelectorAll(".check-answer").forEach(btn => {
+      btn.onclick = () => {
+        const idx = parseInt(btn.dataset.q);
+        const selected = div.querySelector(`input[name="q${idx}"]:checked`);
+        if (!selected) return;
+        const correct = parseInt(btn.dataset.correct);
+        const resultEl = div.querySelector(`#result-${idx}`);
+        if (parseInt(selected.value) === correct) {
+          resultEl.innerHTML = '<span style="color:#22c55e;font-weight:600">Correct!</span>';
+        } else {
+          resultEl.innerHTML = `<span style="color:#ef4444;font-weight:600">Incorrect.</span> ${btn.dataset.explanation || ""}`;
+        }
+      };
+    });
+    ct.scrollTop = ct.scrollHeight;
+  };
+
+  if ($("flashBtn")) $("flashBtn").onclick = () => {
+    const clean = typeof cleanTranscript === 'function' ? cleanTranscript(n.transcript || "") : (n.transcript || "");
+    const cards = generateFlashcards(clean, 12);
+    const existing = document.querySelector(".flash-box");
+    if (existing) existing.remove();
+    const div = document.createElement("div");
+    div.className = "flash-box";
+    div.innerHTML = renderFlashcardsHTML(cards);
+    ct.appendChild(div);
+    // Wire flip
+    div.querySelectorAll(".flashcard").forEach(card => {
+      card.onclick = () => card.classList.toggle("flipped");
+    });
+    ct.scrollTop = ct.scrollHeight;
   };
 }
 
