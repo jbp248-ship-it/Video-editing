@@ -17,6 +17,8 @@ model Event {
   state       String?
   eventDate   DateTime
   category    String?
+  capacity    Int?      // Total venue capacity
+  genre       String?   // Concert, Sports, Theater, Comedy, Festival
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -104,6 +106,13 @@ model MarketSnapshot {
   maxPrice      Float?
   totalListings Int
   totalTickets  Int?
+
+  soldCount          Int?      // Tickets sold since last snapshot
+  soldOutSections    String?   // Comma-separated sold out sections
+  estimatedCapacity  Int?      // Total event capacity
+  soldPercentage     Float?    // (capacity - totalListings) / capacity * 100
+  priceVelocity      Float?    // Price change per hour
+  dataSource         String    @default("SCANNER")  // SCANNER | TICKETDATA | MANUAL
 
   granularity   String   @default("HOURLY")
   capturedAt    DateTime @default(now())
