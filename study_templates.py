@@ -447,43 +447,127 @@ function renderMarkdown(text) {
     return '<div class="md-content">' + html + '</div>';
 }
 
+// ── Async job polling helper ─────────────────────────────────────────────
+
+async function pollJob(jobId, loadingEl, onDone, onError) {
+    const MAX_POLLS = 120;
+    const POLL_INTERVAL_MS = 3000;
+    const LONG_WAIT_THRESHOLD_MS = 30000;
+    const startTime = Date.now();
+    let cancelled = false;
+
+    // Build a cancel button into the loading element
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.cssText = 'margin-top:10px;padding:6px 16px;background:#1a1a1a;border:1px solid #555;border-radius:6px;color:#aaa;font-size:12px;cursor:pointer;';
+    cancelBtn.onclick = () => { cancelled = true; };
+    const timerEl = document.createElement('div');
+    timerEl.className = 'ai-loading-text';
+    timerEl.style.marginTop = '6px';
+    loadingEl.appendChild(timerEl);
+    loadingEl.appendChild(cancelBtn);
+
+    const timerInterval = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        const mins = Math.floor(elapsed / 60000);
+        const secs = Math.floor((elapsed % 60000) / 1000);
+        let msg = 'Generating... (' + (mins > 0 ? mins + 'm ' : '') + secs + 's)';
+        if (elapsed >= LONG_WAIT_THRESHOLD_MS) {
+            msg += '<br><span style="color:#fe2c55;font-size:11px;">Still working — this may take a few minutes on first run</span>';
+        }
+        timerEl.innerHTML = msg;
+    }, 1000);
+
+    try {
+        for (let i = 0; i < MAX_POLLS; i++) {
+            if (cancelled) {
+                onError(new Error('Cancelled'));
+                return;
+            }
+            await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+            if (cancelled) { onError(new Error('Cancelled')); return; }
+            const res = await fetchWithTimeout('/api/job/' + jobId);
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            if (data.status === 'done') {
+                onDone(data.result);
+                return;
+            }
+            if (data.status === 'error') throw new Error(data.message || 'Job failed');
+        }
+        throw new Error('Timed out after 6 minutes');
+    } catch (e) {
+        onError(e);
+    } finally {
+        clearInterval(timerInterval);
+        if (timerEl.parentNode) timerEl.parentNode.removeChild(timerEl);
+        if (cancelBtn.parentNode) cancelBtn.parentNode.removeChild(cancelBtn);
+    }
+}
+
 // ── Summarize ───────────────────────────────────────────────────────────
 
 async function summarizeNote(noteId) {
+    const key = noteId + '_summary';
+    if (_inFlight[key]) return;
+    _inFlight[key] = true;
+
     showTab('study');
     showInnerTab('summary');
-    document.getElementById('loading-summary').classList.add('show');
+    const loadingEl = document.getElementById('loading-summary');
+    loadingEl.classList.add('show');
     document.getElementById('content-summary').innerHTML = '';
 
     try {
-        const res = await fetch('/api/summarize/' + noteId);
+        const res = await fetchWithTimeout('/api/summarize/' + noteId);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        document.getElementById('content-summary').innerHTML = renderMarkdown(data.summary);
+        if (data.cached || data.summary) {
+            document.getElementById('content-summary').innerHTML = renderMarkdown(data.summary);
+        } else if (data.job_id) {
+            await pollJob(data.job_id, loadingEl,
+                result => { document.getElementById('content-summary').innerHTML = renderMarkdown(result.summary || result); },
+                e => { document.getElementById('content-summary').innerHTML = '<div style="color:#ef4444;font-size:13px;padding:12px;">Error: ' + escapeHtml(e.message) + '</div>'; }
+            );
+        }
     } catch (e) {
-        document.getElementById('content-summary').innerHTML = '<div style="color:#ef4444;font-size:13px;padding:12px;">Error: ' + e.message + '</div>';
+        document.getElementById('content-summary').innerHTML = '<div style="color:#ef4444;font-size:13px;padding:12px;">Error: ' + escapeHtml(e.message) + '</div>';
     } finally {
-        document.getElementById('loading-summary').classList.remove('show');
+        loadingEl.classList.remove('show');
+        delete _inFlight[key];
     }
 }
 
 // ── Study Guide ─────────────────────────────────────────────────────────
 
 async function studyGuide(noteId) {
+    const key = noteId + '_guide';
+    if (_inFlight[key]) return;
+    _inFlight[key] = true;
+
     showTab('study');
     showInnerTab('guide');
-    document.getElementById('loading-guide').classList.add('show');
+    const loadingEl = document.getElementById('loading-guide');
+    loadingEl.classList.add('show');
     document.getElementById('content-guide').innerHTML = '';
 
     try {
-        const res = await fetch('/api/study-guide/' + noteId);
+        const res = await fetchWithTimeout('/api/study-guide/' + noteId);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
-        document.getElementById('content-guide').innerHTML = renderMarkdown(data.study_guide);
+        if (data.cached || data.study_guide) {
+            document.getElementById('content-guide').innerHTML = renderMarkdown(data.study_guide);
+        } else if (data.job_id) {
+            await pollJob(data.job_id, loadingEl,
+                result => { document.getElementById('content-guide').innerHTML = renderMarkdown(result.study_guide || result); },
+                e => { document.getElementById('content-guide').innerHTML = '<div style="color:#ef4444;font-size:13px;padding:12px;">Error: ' + escapeHtml(e.message) + '</div>'; }
+            );
+        }
     } catch (e) {
-        document.getElementById('content-guide').innerHTML = '<div style="color:#ef4444;font-size:13px;padding:12px;">Error: ' + e.message + '</div>';
+        document.getElementById('content-guide').innerHTML = '<div style="color:#ef4444;font-size:13px;padding:12px;">Error: ' + escapeHtml(e.message) + '</div>';
     } finally {
-        document.getElementById('loading-guide').classList.remove('show');
+        loadingEl.classList.remove('show');
+        delete _inFlight[key];
     }
 }
 
@@ -492,27 +576,44 @@ async function studyGuide(noteId) {
 let _quiz = null;
 let _qIdx = 0;
 let _score = 0;
-let _answered = [];
+let _answered = {};
 
 async function startQuiz(noteId) {
+    const key = noteId + '_quiz';
+    if (_inFlight[key]) return;
+    _inFlight[key] = true;
+
     showTab('study');
     showInnerTab('quiz');
-    document.getElementById('loading-quiz').classList.add('show');
+    const loadingEl = document.getElementById('loading-quiz');
+    loadingEl.classList.add('show');
     document.getElementById('quiz-container').innerHTML = '';
 
-    try {
-        const res = await fetch('/api/quiz/' + noteId);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-        _quiz = data.quiz;
+    const initQuiz = (quiz) => {
+        _quiz = quiz;
         _qIdx = 0;
         _score = 0;
-        _answered = new Array(_quiz.questions.length).fill(false);
+        _answered = {};
         renderQuestion(0);
+    };
+
+    try {
+        const res = await fetchWithTimeout('/api/quiz/' + noteId);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        if (data.cached || data.quiz) {
+            initQuiz(data.quiz);
+        } else if (data.job_id) {
+            await pollJob(data.job_id, loadingEl,
+                result => { initQuiz(result.quiz || result); },
+                e => { document.getElementById('quiz-container').innerHTML = '<div style="color:#ef4444;font-size:13px;padding:12px;">Error: ' + escapeHtml(e.message) + '</div>'; }
+            );
+        }
     } catch (e) {
-        document.getElementById('quiz-container').innerHTML = '<div style="color:#ef4444;font-size:13px;padding:12px;">Error: ' + e.message + '</div>';
+        document.getElementById('quiz-container').innerHTML = '<div style="color:#ef4444;font-size:13px;padding:12px;">Error: ' + escapeHtml(e.message) + '</div>';
     } finally {
-        document.getElementById('loading-quiz').classList.remove('show');
+        loadingEl.classList.remove('show');
+        delete _inFlight[key];
     }
 }
 
@@ -528,7 +629,7 @@ function renderQuestion(idx) {
     if (q.type === 'multiple_choice' && q.options) {
         optionsHtml = '<div class="quiz-options">' +
             q.options.map((opt, i) =>
-                `<button class="quiz-option" id="opt-${idx}-${i}" onclick="selectMC(${idx}, ${i}, '${escQ(q.answer)}')">${opt}</button>`
+                `<button class="quiz-option" id="opt-${idx}-${i}" onclick="selectMC(${idx}, ${i}, '${escQ(q.answer)}')">${escapeHtml(opt)}</button>`
             ).join('') +
             '</div>';
     } else {
@@ -540,10 +641,10 @@ function renderQuestion(idx) {
     document.getElementById('quiz-container').innerHTML = `
         <div class="quiz-progress">Question ${idx + 1} of ${total}</div>
         <div class="quiz-question">
-            <div class="quiz-question-text">${idx + 1}. ${q.question}</div>
+            <div class="quiz-question-text">${idx + 1}. ${escapeHtml(q.question)}</div>
             ${optionsHtml}
             <div class="quiz-explanation ${_answered[idx] ? 'show' : ''}" id="exp-${idx}">
-                💡 ${q.explanation || ''}
+                💡 ${escapeHtml(q.explanation || '')}
             </div>
         </div>
         <div class="quiz-nav">
