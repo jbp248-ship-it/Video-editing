@@ -349,6 +349,7 @@ HTML_TEMPLATE = """
     <div class="logo">
         <h1>TikTok Video Clipper</h1>
         <p>Upload a long video, get viral clips back</p>
+        <a href="/notes" style="display:inline-block;margin-top:10px;padding:8px 20px;background:#111;border:1px solid #333;border-radius:8px;color:#25f4ee;font-size:13px;text-decoration:none;">My Notes &amp; Study Tools</a>
     </div>
 
     <!-- UPLOAD SECTION -->
@@ -771,6 +772,26 @@ def _run_pipeline(job_id: str):
         if manifest_path.exists():
             note_files = manifest.get("notes", {}).get("files", [])
 
+        # Auto-save notes to the notes store
+        try:
+            from notes_store import save_note
+            from pathlib import Path as _Path
+            manifest_data = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+            # Get full transcript from manifest or build from clips
+            raw_content = ""
+            for clip in manifest_data.get("clips", []):
+                raw_content += clip.get("transcript_preview", "") + "\n"
+            if raw_content.strip():
+                video_stem = _Path(video_path).stem
+                save_note(
+                    title=video_stem,
+                    raw_content=raw_content,
+                    job_id=job_id,
+                )
+                logger.info(f"Auto-saved note for job {job_id}")
+        except Exception as _e:
+            logger.warning(f"Could not auto-save note: {_e}")
+
         job["status"] = "done"
         job["clips"] = clips
         job["note_files"] = note_files
@@ -840,6 +861,128 @@ def download_notes(job_id, filename):
             return send_file(str(candidate.absolute()), as_attachment=True)
 
     return "Note file not found", 404
+
+
+# ── Study Feature Routes ─────────────────────────────────────────────────
+
+@app.route("/notes")
+def notes_page():
+    """Show all saved notes with study features."""
+    try:
+        from notes_store import get_all_notes, get_dates_with_notes
+        notes = get_all_notes()
+        dates = get_dates_with_notes()
+    except Exception:
+        notes = []
+        dates = []
+    # Import and render the notes page template
+    try:
+        from study_templates import NOTES_PAGE_HTML, STUDY_UI_CSS
+    except ImportError:
+        return "<h1>Study templates not found</h1>", 500
+    from flask import render_template_string
+    return render_template_string(NOTES_PAGE_HTML, notes=notes, dates=dates, css=STUDY_UI_CSS)
+
+
+@app.route("/api/summarize/<note_id>")
+def api_summarize(note_id):
+    """Generate or return cached structured summary for a note."""
+    try:
+        from notes_store import get_note, update_note_cache
+        from study_engine import generate_structured_summary
+        note = get_note(note_id)
+        if not note:
+            return jsonify({"error": "Note not found"}), 404
+        # Return cache if available
+        if note.get("summary"):
+            return jsonify({"summary": note["summary"], "cached": True})
+        # Generate
+        summary = generate_structured_summary(note["raw_content"])
+        update_note_cache(note_id, "summary", summary)
+        return jsonify({"summary": summary, "cached": False})
+    except Exception as e:
+        logger.error(f"Summarize error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/study-guide/<note_id>")
+def api_study_guide(note_id):
+    """Generate or return cached study guide for a note."""
+    try:
+        from notes_store import get_note, update_note_cache
+        from study_engine import generate_study_guide
+        note = get_note(note_id)
+        if not note:
+            return jsonify({"error": "Note not found"}), 404
+        if note.get("study_guide"):
+            return jsonify({"study_guide": note["study_guide"], "cached": True})
+        guide = generate_study_guide(note["raw_content"])
+        update_note_cache(note_id, "study_guide", guide)
+        return jsonify({"study_guide": guide, "cached": False})
+    except Exception as e:
+        logger.error(f"Study guide error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/quiz/<note_id>")
+def api_quiz(note_id):
+    """Generate or return cached quiz for a note."""
+    try:
+        from notes_store import get_note, update_note_cache
+        from study_engine import generate_quiz
+        note = get_note(note_id)
+        if not note:
+            return jsonify({"error": "Note not found"}), 404
+        if note.get("quiz"):
+            return jsonify({"quiz": note["quiz"], "cached": True})
+        quiz = generate_quiz(note["raw_content"])
+        update_note_cache(note_id, "quiz", quiz)
+        return jsonify({"quiz": quiz, "cached": False})
+    except Exception as e:
+        logger.error(f"Quiz error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/compile", methods=["POST"])
+def api_compile():
+    """Compile notes from multiple dates into one cohesive document."""
+    try:
+        from notes_store import get_notes_by_date
+        from study_engine import compile_notes
+        data = request.get_json()
+        dates = data.get("dates", [])
+        if not dates:
+            return jsonify({"error": "No dates selected"}), 400
+        # Gather notes for selected dates
+        notes_list = []
+        for d in dates:
+            day_notes = get_notes_by_date(d)
+            for n in day_notes:
+                notes_list.append({"date": d, "content": n["raw_content"], "title": n.get("title", "")})
+        if not notes_list:
+            return jsonify({"error": "No notes found for selected dates"}), 404
+        compiled = compile_notes(notes_list)
+        return jsonify({"compiled": compiled})
+    except Exception as e:
+        logger.error(f"Compile error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/save-note", methods=["POST"])
+def api_save_note():
+    """Save a note manually (from text input)."""
+    try:
+        from notes_store import save_note
+        data = request.get_json()
+        title = data.get("title", "Untitled Note")
+        content = data.get("content", "")
+        date = data.get("date")
+        if not content:
+            return jsonify({"error": "Content is required"}), 400
+        note = save_note(title, content, date=date)
+        return jsonify({"note": note})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ── Main ────────────────────────────────────────────────────────────────
