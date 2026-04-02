@@ -1,5 +1,0 @@
-node_modules/
-dist/
-models/Xenova/
-models/onnx-community/
-*.onnx
