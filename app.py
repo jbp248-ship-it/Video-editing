@@ -14,7 +14,7 @@ import os
 import json
 import time
 
-# Load .env file if present (so users can set ANTHROPIC_API_KEY there)
+# Load .env file if present (so users can set GROQ_API_KEY there)
 try:
     from dotenv import load_dotenv
     load_dotenv()

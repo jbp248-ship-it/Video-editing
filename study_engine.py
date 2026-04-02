@@ -1,16 +1,19 @@
 """
-study_engine.py — AI-powered study features for the Video-editing notes application.
+study_engine.py — AI-powered study features using Groq (free tier).
 
-Uses the Anthropic Claude API to transform raw Whisper-generated notes into
-structured summaries, study guides, compiled multi-day notes, and quizzes.
+Uses the Groq API (free) with Llama 3 to transform raw Whisper-generated notes
+into structured summaries, study guides, compiled multi-day notes, and quizzes.
+
+Get a free API key at: https://console.groq.com
 """
 
 import hashlib
 import json
 import logging
+import os
 from typing import Any
 
-import anthropic
+from groq import Groq, AuthenticationError, RateLimitError, BadRequestError, APIStatusError, APIConnectionError
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -26,10 +29,17 @@ logging.basicConfig(
 # Client
 # ---------------------------------------------------------------------------
 
-# Reads ANTHROPIC_API_KEY from the environment automatically.
-_client = anthropic.Anthropic()
+MODEL = "llama-3.3-70b-versatile"  # Free tier, very capable
 
-MODEL = "claude-sonnet-4-6"
+_client: "Groq | None" = None
+
+
+def _get_client() -> "Groq":
+    """Lazily initialize the Groq client so missing key only errors at call time."""
+    global _client
+    if _client is None:
+        _client = Groq()  # reads GROQ_API_KEY from env
+    return _client
 
 # ---------------------------------------------------------------------------
 # In-memory cache
@@ -47,7 +57,7 @@ def _cache_key(text: str, func_name: str) -> str:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _call_claude(
+def _call_groq(
     *,
     system: str,
     user_content: str,
@@ -56,7 +66,7 @@ def _call_claude(
     max_tokens: int = 4096,
 ) -> str:
     """
-    Make a single Claude API call with caching and error handling.
+    Make a single Groq API call with caching and error handling.
 
     Returns the text response, or a fallback error string on failure.
     """
@@ -65,42 +75,40 @@ def _call_claude(
         logger.info("Cache hit for %s (key=%s)", func_name, key[:32])
         return _cache[key]
 
-    logger.info("Calling Claude for %s (model=%s)", func_name, MODEL)
+    logger.info("Calling Groq for %s (model=%s)", func_name, MODEL)
     try:
-        with _client.messages.stream(
+        response = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=max_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user_content}],
-        ) as stream:
-            response = stream.get_final_message()
-
-        result = next(
-            (block.text for block in response.content if block.type == "text"),
-            "",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_content},
+            ],
         )
+
+        result = response.choices[0].message.content or ""
         logger.info(
             "%s complete — input_tokens=%d output_tokens=%d",
             func_name,
-            response.usage.input_tokens,
-            response.usage.output_tokens,
+            response.usage.prompt_tokens,
+            response.usage.completion_tokens,
         )
         _cache[key] = result
         return result
 
-    except anthropic.AuthenticationError:
-        logger.error("Authentication failed — check ANTHROPIC_API_KEY")
-        return f"[Error] Authentication failed. Please verify your ANTHROPIC_API_KEY."
-    except anthropic.RateLimitError:
+    except AuthenticationError:
+        logger.error("Authentication failed — check GROQ_API_KEY")
+        return "[Error] Authentication failed. Please verify your GROQ_API_KEY in the .env file."
+    except RateLimitError:
         logger.warning("Rate limit hit for %s", func_name)
         return "[Error] Rate limit reached. Please retry after a short wait."
-    except anthropic.BadRequestError as exc:
+    except BadRequestError as exc:
         logger.error("Bad request in %s: %s", func_name, exc)
         return f"[Error] Invalid request: {exc}"
-    except anthropic.APIStatusError as exc:
+    except APIStatusError as exc:
         logger.error("API error in %s: status=%d msg=%s", func_name, exc.status_code, exc)
         return f"[Error] API error ({exc.status_code}). Please try again later."
-    except anthropic.APIConnectionError:
+    except APIConnectionError:
         logger.error("Network error in %s", func_name)
         return "[Error] Network connection failed. Check your internet connection."
 
@@ -156,7 +164,7 @@ def generate_structured_summary(notes_text: str) -> str:
         logger.warning("generate_structured_summary called with empty notes")
         return "[Error] No notes provided."
 
-    return _call_claude(
+    return _call_groq(
         system=_SUMMARY_SYSTEM,
         user_content=_SUMMARY_PROMPT_TEMPLATE.format(notes_text=notes_text),
         func_name="generate_structured_summary",
@@ -202,7 +210,7 @@ def generate_study_guide(notes_text: str) -> str:
     Produce a comprehensive study guide from raw notes.
 
     Internally calls generate_structured_summary to build the Summary section,
-    then asks Claude to add Key Terms, Practice Questions, and Memory Aids.
+    then asks Groq to add Key Terms, Practice Questions, and Memory Aids.
 
     Args:
         notes_text: Raw transcript-based notes as a plain string.
@@ -224,11 +232,9 @@ def generate_study_guide(notes_text: str) -> str:
         structured_summary=structured_summary
     )
 
-    # The cache key covers both the original notes and the derived summary so
-    # that any change to the notes invalidates the cached study guide.
     cache_key_text = notes_text + structured_summary
 
-    return _call_claude(
+    return _call_groq(
         system=_STUDY_GUIDE_SYSTEM,
         user_content=user_content,
         func_name="generate_study_guide",
@@ -277,7 +283,6 @@ def compile_notes(notes_list: list[dict]) -> str:
 
     Args:
         notes_list: List of dicts, each with "date" (str) and "content" (str) keys.
-                    Example: [{"date": "2025-01-15", "content": "raw notes text"}, ...]
 
     Returns:
         Compiled markdown notes string, or an error message string on failure.
@@ -286,7 +291,6 @@ def compile_notes(notes_list: list[dict]) -> str:
         logger.warning("compile_notes called with empty list")
         return "[Error] No notes provided."
 
-    # Build a single string of dated notes for the prompt and cache key.
     dated_sections: list[str] = []
     for entry in notes_list:
         date = entry.get("date", "Unknown date")
@@ -299,9 +303,9 @@ def compile_notes(notes_list: list[dict]) -> str:
         return "[Error] All provided notes were empty."
 
     dated_notes = "\n\n".join(dated_sections)
-    cache_key_text = dated_notes  # deterministic from the actual content
+    cache_key_text = dated_notes
 
-    return _call_claude(
+    return _call_groq(
         system=_COMPILE_SYSTEM,
         user_content=_COMPILE_PROMPT_TEMPLATE.format(dated_notes=dated_notes),
         func_name="compile_notes",
@@ -388,7 +392,6 @@ def generate_quiz(notes_text: str) -> dict:
 
     Returns:
         Dict with a "questions" key containing a list of question dicts.
-        Falls back to a minimal error dict if parsing or the API call fails.
     """
     if not notes_text or not notes_text.strip():
         logger.warning("generate_quiz called with empty notes")
@@ -410,42 +413,36 @@ def generate_quiz(notes_text: str) -> dict:
         logger.info("Cache hit for generate_quiz (key=%s)", key[:32])
         return _cache[key]
 
-    logger.info("Calling Claude for generate_quiz (model=%s)", MODEL)
+    logger.info("Calling Groq for generate_quiz (model=%s)", MODEL)
     try:
-        with _client.messages.stream(
+        response = _get_client().chat.completions.create(
             model=MODEL,
             max_tokens=4096,
-            system=_QUIZ_SYSTEM,
             messages=[
+                {"role": "system", "content": _QUIZ_SYSTEM},
                 {
                     "role": "user",
                     "content": _QUIZ_PROMPT_TEMPLATE.format(notes_text=notes_text),
-                }
+                },
             ],
-        ) as stream:
-            response = stream.get_final_message()
+        )
 
-        raw_text = next(
-            (block.text for block in response.content if block.type == "text"),
-            "",
-        ).strip()
+        raw_text = (response.choices[0].message.content or "").strip()
 
         logger.info(
             "generate_quiz complete — input_tokens=%d output_tokens=%d",
-            response.usage.input_tokens,
-            response.usage.output_tokens,
+            response.usage.prompt_tokens,
+            response.usage.completion_tokens,
         )
 
-        # Strip optional markdown fences Claude might include despite instructions.
+        # Strip optional markdown fences the model might include.
         if raw_text.startswith("```"):
             lines = raw_text.splitlines()
-            # Drop first and last fence lines.
             inner_lines = lines[1:-1] if lines[-1].startswith("```") else lines[1:]
             raw_text = "\n".join(inner_lines).strip()
 
         quiz_dict = json.loads(raw_text)
 
-        # Basic structural validation.
         if "questions" not in quiz_dict or not isinstance(quiz_dict["questions"], list):
             raise ValueError("Response missing 'questions' list")
 
@@ -459,20 +456,18 @@ def generate_quiz(notes_text: str) -> dict:
     except ValueError as exc:
         logger.error("generate_quiz: unexpected structure — %s", exc)
         return _QUIZ_FALLBACK.copy()
-    except anthropic.AuthenticationError:
-        logger.error("Authentication failed — check ANTHROPIC_API_KEY")
+    except AuthenticationError:
+        logger.error("Authentication failed — check GROQ_API_KEY")
         return _QUIZ_FALLBACK.copy()
-    except anthropic.RateLimitError:
+    except RateLimitError:
         logger.warning("Rate limit hit for generate_quiz")
         return _QUIZ_FALLBACK.copy()
-    except anthropic.BadRequestError as exc:
+    except BadRequestError as exc:
         logger.error("Bad request in generate_quiz: %s", exc)
         return _QUIZ_FALLBACK.copy()
-    except anthropic.APIStatusError as exc:
-        logger.error(
-            "API error in generate_quiz: status=%d msg=%s", exc.status_code, exc
-        )
+    except APIStatusError as exc:
+        logger.error("API error in generate_quiz: status=%d msg=%s", exc.status_code, exc)
         return _QUIZ_FALLBACK.copy()
-    except anthropic.APIConnectionError:
+    except APIConnectionError:
         logger.error("Network error in generate_quiz")
         return _QUIZ_FALLBACK.copy()
