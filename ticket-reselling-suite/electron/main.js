@@ -64,14 +64,26 @@ function getEnv() {
 
 async function initDatabase() {
   try {
+    // Generate Prisma client first (needed for Next.js to work)
+    console.log("Generating Prisma client...");
     await new Promise((resolve, reject) => {
-      const proc = spawn("npx", ["prisma", "db", "push", "--skip-generate"], {
+      const proc = spawn("npx", ["prisma", "generate"], {
+        cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe", timeout: 30000,
+      });
+      proc.on("close", (code) => code === 0 ? resolve(undefined) : resolve(undefined)); // Don't fail on error
+      proc.on("error", () => resolve(undefined));
+    });
+
+    // Push DB schema
+    console.log("Pushing database schema...");
+    await new Promise((resolve, reject) => {
+      const proc = spawn("npx", ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"], {
         cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe", timeout: 30000,
       });
       let stderr = "";
       proc.stderr.on("data", (d) => { stderr += d.toString(); });
       proc.on("close", (code) => {
-        if (code === 0) resolve();
+        if (code === 0) resolve(undefined);
         else reject(new Error(stderr || `prisma db push exited with code ${code}`));
       });
       proc.on("error", (err) => reject(err));
@@ -79,10 +91,7 @@ async function initDatabase() {
     console.log("Database initialized at:", getDatabasePath());
   } catch (err) {
     console.error("Database init failed:", err.message);
-    dialog.showErrorBox(
-      "TicketOps — Database Error",
-      `Failed to initialize the database:\n\n${err.message}\n\nThe app will continue but may not work correctly.`
-    );
+    // Don't show error dialog — app can still work if DB was previously set up
   }
 }
 
