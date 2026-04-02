@@ -149,6 +149,7 @@ export default function DashboardPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [inventoryFilter, setInventoryFilter] = useState("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
   const [saleModal, setSaleModal] = useState<string | null>(null);
   const [saleForm, setSaleForm] = useState({
     price: "",
@@ -173,6 +174,8 @@ export default function DashboardPage() {
       if (invRes.ok) setInventory(await invRes.json());
       if (alertRes.ok) setAlerts(await alertRes.json());
       if (snapRes?.ok) setSnapshots(await snapRes.json());
+      // Auto-check floor price alerts on load
+      fetch("/api/alerts/floor-check", { method: "POST" }).catch(() => {});
       setFetchError(null);
     } catch (err) {
       setFetchError(
@@ -271,6 +274,8 @@ export default function DashboardPage() {
               type="text"
               placeholder="Search events..."
               className="rounded-lg border border-warm-200 bg-warm-50 px-3 py-1.5 text-sm text-warm-700 placeholder-warm-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20 w-64"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
             />
             <button className="btn-primary" onClick={() => setActiveTab("inventory")}>+ Add Tickets</button>
           </div>
@@ -362,9 +367,13 @@ export default function DashboardPage() {
               </div>
               <InventoryTable
                 items={
-                  inventoryFilter === "ALL"
+                  (inventoryFilter === "ALL"
                     ? inventory
-                    : inventory.filter((item) => item.status === inventoryFilter)
+                    : inventory.filter((item: any) => item.status === inventoryFilter)
+                  ).filter((item: any) =>
+                    !searchQuery || item.event?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    item.section?.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
                 }
                 onRecordSale={handleRecordSale}
               />

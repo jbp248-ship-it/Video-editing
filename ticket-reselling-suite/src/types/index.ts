@@ -15,6 +15,9 @@ export const Platform = {
   VIVID_SEATS: "VIVID_SEATS",
   SEATGEEK: "SEATGEEK",
   ETIX: "ETIX",
+  AXS: "AXS",
+  TICKPICK: "TICKPICK",
+  GAMETIME: "GAMETIME",
   OTHER: "OTHER",
 } as const;
 
@@ -39,6 +42,7 @@ export const AlertType = {
   LOW_INVENTORY: "LOW_INVENTORY",
   HIGH_MARGIN: "HIGH_MARGIN",
   PRICE_DROP: "PRICE_DROP",
+  FLOOR_DROP: "FLOOR_DROP",
   DOUBLE_SELL_RISK: "DOUBLE_SELL_RISK",
   APPROACHING_EVENT: "APPROACHING_EVENT",
 } as const;
@@ -77,6 +81,7 @@ export interface DashboardStats {
   pendingRemovals: number;
   eventsTracked: number;
   avgMarginPercent: number;
+  unreadAlerts?: number;
 }
 
 export interface PriceTrend {
