@@ -9,6 +9,9 @@ import { PriceTrendChart } from "@/components/PriceTrendChart";
 import { MarketScanner } from "@/components/MarketScanner";
 import { TicketBrowser } from "@/components/TicketBrowser";
 import { SalesHistory } from "@/components/SalesHistory";
+import { FlareScreener } from "@/components/FlareScreener";
+import { Analytics } from "@/components/Analytics";
+import { CSVImport } from "@/components/CSVImport";
 import type { DashboardStats } from "@/types";
 
 // ─── Platform fee defaults ────────────────────────────────────────────────────
@@ -261,7 +264,7 @@ export default function DashboardPage() {
         {/* Top Bar */}
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-warm-200 bg-white/80 backdrop-blur px-6">
           <h1 className="text-lg font-semibold capitalize text-warm-900">
-            {activeTab === "market" ? "Market Scanner" : activeTab === "browse" ? "Browse Ticket Sites" : activeTab}
+            {activeTab === "market" ? "Market Scanner" : activeTab === "browse" ? "Browse Ticket Sites" : activeTab === "screener" ? "FLARE Screener" : activeTab === "analytics" ? "P&L Analytics" : activeTab === "import" ? "CSV Import" : activeTab}
           </h1>
           <div className="flex items-center gap-4">
             <input
@@ -386,6 +389,15 @@ export default function DashboardPage() {
             />
           )}
 
+          {/* FLARE Screener View */}
+          {activeTab === "screener" && <FlareScreener />}
+
+          {/* P&L Analytics View */}
+          {activeTab === "analytics" && <Analytics />}
+
+          {/* CSV Import View */}
+          {activeTab === "import" && <CSVImport />}
+
           {/* Settings View */}
           {activeTab === "settings" && <SettingsPanel />}
         </div>
@@ -406,7 +418,7 @@ export default function DashboardPage() {
                     setSaleForm({ ...saleForm, platform: e.target.value })
                   }
                 >
-                  {["STUBHUB", "TICKETMASTER", "VIVID_SEATS", "SEATGEEK", "ETIX"].map(
+                  {["STUBHUB", "TICKETMASTER", "VIVID_SEATS", "SEATGEEK", "ETIX", "AXS", "TICKPICK", "GAMETIME"].map(
                     (p) => (
                       <option key={p} value={p}>
                         {p.replace(/_/g, " ")}
