@@ -326,10 +326,17 @@ function isTicketObject(obj: Record<string, unknown>): boolean {
     obj.displayPrice !== undefined ||
     obj.PriceWithFees !== undefined ||
     obj.priceWithFees !== undefined ||
+    obj.ticketPrice !== undefined ||
+    obj.listPrice !== undefined ||
+    obj.buyerPrice !== undefined ||
+    obj.faceValue !== undefined ||
+    obj.totalPrice !== undefined ||
     (obj.price !== undefined &&
       (obj.section !== undefined || obj.Section !== undefined || obj.row !== undefined)) ||
     (obj.Price !== undefined &&
-      (obj.Section !== undefined || obj.Row !== undefined))
+      (obj.Section !== undefined || obj.Row !== undefined)) ||
+    (obj.currentPrice !== undefined &&
+      (obj.section !== undefined || obj.Section !== undefined))
   );
 }
 
@@ -352,6 +359,7 @@ async function extractFromDom(page: Page): Promise<ScanListing[]> {
       row: string;
       quantity: number;
       priceWithFees: number | null;
+      ticketsRemaining: number | null;
     }> = [];
     const seen = new Set<string>();
 
