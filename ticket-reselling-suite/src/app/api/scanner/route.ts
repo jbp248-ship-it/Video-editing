@@ -55,23 +55,35 @@ export async function POST(req: NextRequest) {
         select: { id: true },
       });
 
-      await prisma.marketSnapshot.create({
-        data: {
+      const snapshotData: Record<string, unknown> = {
           eventId: matchedEvent?.id ?? null,
           eventName: result.eventName,
           platform: result.platform,
-          getInPrice: result.stats.getInPrice,
-          medianPrice: result.stats.medianPrice,
-          averagePrice: result.stats.averagePrice,
-          maxPrice: result.stats.maxPrice,
-          totalListings: result.stats.totalListings,
-          totalTickets: result.supply?.totalTicketsRemaining ?? result.stats.totalListings,
+          getInPrice: result.stats?.getInPrice ?? 0,
+          totalListings: result.stats?.totalListings ?? 0,
           granularity: "HOURLY",
-          ...(result.supply?.soldOutSections?.length ? { soldOutSections: result.supply.soldOutSections.join(",") } : {}),
-          ...(result.supply?.estimatedCapacity ? { estimatedCapacity: result.supply.estimatedCapacity } : {}),
-          ...(result.supply?.soldPercentage != null ? { soldPercentage: result.supply.soldPercentage } : {}),
           dataSource: "SCANNER",
-        },
+        };
+        if (result.stats?.medianPrice != null) snapshotData.medianPrice = result.stats.medianPrice;
+        if (result.stats?.averagePrice != null) snapshotData.averagePrice = result.stats.averagePrice;
+        if (result.stats?.maxPrice != null) snapshotData.maxPrice = result.stats.maxPrice;
+        if (result.supply?.totalTicketsRemaining != null) {
+          snapshotData.totalTickets = result.supply.totalTicketsRemaining;
+        } else if (result.stats?.totalListings != null) {
+          snapshotData.totalTickets = result.stats.totalListings;
+        }
+        if (result.supply?.soldOutSections?.length) {
+          snapshotData.soldOutSections = result.supply.soldOutSections.join(",");
+        }
+        if (result.supply?.estimatedCapacity != null) {
+          snapshotData.estimatedCapacity = result.supply.estimatedCapacity;
+        }
+        if (result.supply?.soldPercentage != null) {
+          snapshotData.soldPercentage = result.supply.soldPercentage;
+        }
+
+      await prisma.marketSnapshot.create({
+        data: snapshotData as any,
       });
     }
 
