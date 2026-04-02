@@ -24,9 +24,39 @@ DESKTOP_SCRIPT = PROJECT_ROOT / "desktop.py"
 
 
 def install_dependencies():
-    print("Installing dependencies ...")
-    subprocess.check_call([PYTHON, "-m", "pip", "install", "-r", str(PROJECT_ROOT / "requirements.txt")])
-    print("Dependencies installed.\n")
+    print("Installing core dependencies ...")
+    # Install core deps first (these are stable across Python versions)
+    try:
+        subprocess.check_call([PYTHON, "-m", "pip", "install", "-r", str(PROJECT_ROOT / "requirements.txt")])
+    except subprocess.CalledProcessError:
+        print("  WARNING: Some core dependencies failed. Continuing anyway ...\n")
+
+    # Install pywebview separately — on Windows it may need special handling
+    print("Installing pywebview (desktop window) ...")
+    try:
+        subprocess.check_call([PYTHON, "-m", "pip", "install", "pywebview>=5.0"])
+        print("pywebview installed.\n")
+    except subprocess.CalledProcessError:
+        print()
+        print("=" * 55)
+        print("  pywebview failed to install.")
+        print()
+        v = sys.version_info
+        if v.minor >= 13:
+            print(f"  You're on Python {v.major}.{v.minor} which is very new.")
+            print("  pywebview/pythonnet may not support it yet.")
+            print()
+            print("  Fix: install Python 3.12 from python.org and retry:")
+            print("    py -3.12 install_desktop.py")
+        else:
+            print("  On Windows, try:  pip install pywebview[cef]")
+            print("  On Linux:  sudo apt install python3-gi gir1.2-webkit2-4.1")
+        print("=" * 55)
+        print()
+        return False
+
+    print("All dependencies installed.\n")
+    return True
 
 
 def create_icon():
@@ -139,7 +169,10 @@ def main():
     print()
 
     # 1. Install deps
-    install_dependencies()
+    deps_ok = install_dependencies()
+    if deps_ok is False:
+        print("Fix the dependency issue above, then re-run this script.")
+        sys.exit(1)
 
     # 2. Create icon
     icon_path = create_icon()
