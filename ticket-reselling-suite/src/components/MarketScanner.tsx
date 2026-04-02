@@ -13,6 +13,7 @@ interface ScanResult {
     price: number;
     quantity: number;
     priceWithFees: number | null;
+    ticketsRemaining: number | null;
   }>;
   stats: {
     getInPrice: number;
@@ -20,6 +21,7 @@ interface ScanResult {
     averagePrice: number;
     maxPrice: number;
     totalListings: number;
+    totalTicketsRemaining: number | null;
   };
   scannedAt: string;
 }
@@ -391,7 +393,7 @@ export function MarketScanner() {
 
             {/* Summary stat grid */}
             <div
-              className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t"
+              className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4 pt-4 border-t"
               style={{ borderColor: "#E8E2DB" }}
             >
               <div className="stat-card">
@@ -416,6 +418,26 @@ export function MarketScanner() {
                 <span className="stat-label">Total Listings</span>
                 <span className="stat-value text-warm-900">
                   {result.stats.totalListings.toLocaleString()}
+                </span>
+              </div>
+              <div className="stat-card">
+                <span className="stat-label">Tickets Remaining</span>
+                <span
+                  className="stat-value"
+                  style={{
+                    color:
+                      result.stats.totalTicketsRemaining == null
+                        ? "#8C8680"
+                        : result.stats.totalTicketsRemaining > 50
+                          ? "#16a34a"
+                          : result.stats.totalTicketsRemaining >= 10
+                            ? "#d97706"
+                            : "#dc2626",
+                  }}
+                >
+                  {result.stats.totalTicketsRemaining != null
+                    ? result.stats.totalTicketsRemaining.toLocaleString()
+                    : "Unknown"}
                 </span>
               </div>
             </div>
