@@ -463,33 +463,28 @@ export function TicketBrowser() {
           position: "relative",
         }}
       >
-        {/* Nav buttons: back, forward, refresh */}
-
-        {/* Back / Forward / Refresh */}
+        {/* Back / Forward / Refresh — compact icon buttons */}
         <ToolbarIconBtn onClick={() => api.back()} title="Back">
-          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
           </svg>
         </ToolbarIconBtn>
         <ToolbarIconBtn onClick={() => api.forward()} title="Forward">
-          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
           </svg>
         </ToolbarIconBtn>
         <ToolbarIconBtn onClick={() => api.refresh()} title="Refresh">
-          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
           </svg>
         </ToolbarIconBtn>
 
-        {/* URL input */}
-        <form onSubmit={handleSubmit} className="flex-1 flex">
+        {/* URL input — full width, rounded */}
+        <form onSubmit={handleSubmit} className="flex-1 flex mx-1">
           <div className="relative w-full">
-            {/* Loading indicator dot */}
             {loading && (
-              <div
-                className="pointer-events-none absolute inset-y-0 left-3 flex items-center"
-              >
+              <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">
                 <div
                   className="h-2 w-2 rounded-full animate-pulse"
                   style={{ backgroundColor: "#F59E0B" }}
@@ -500,12 +495,13 @@ export function TicketBrowser() {
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              className="w-full rounded-lg py-1.5 text-sm transition-all duration-150"
+              placeholder="Enter URL or search..."
+              className="w-full rounded-full py-1 text-xs transition-all duration-150"
               style={{
                 border: "1px solid #4A4539",
                 backgroundColor: "#2D2B28",
                 color: "#F5F0EB",
-                paddingLeft: loading ? "28px" : "12px",
+                paddingLeft: loading ? "24px" : "12px",
                 paddingRight: "12px",
               }}
               onFocus={(e) => {
@@ -521,10 +517,12 @@ export function TicketBrowser() {
           </div>
         </form>
 
-        {/* Esc hint */}
-        <span className="text-[10px] shrink-0" style={{ color: "#4A4539" }}>
-          Esc to exit
-        </span>
+        {/* Close button — compact */}
+        <ToolbarIconBtn onClick={closeBrowser} title="Close browser (Esc)">
+          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </ToolbarIconBtn>
       </div>
 
       {/* Split: BrowserView (left) + Data Panel (right) */}
@@ -532,11 +530,24 @@ export function TicketBrowser() {
         {/* BrowserView placeholder — Electron renders the real browser here */}
         <div className="flex-1" style={{ backgroundColor: "#F5F0EB" }} />
 
-        {/* Data Panel */}
+        {/* Drag handle for resizing data panel */}
         <div
-          className="w-[380px] shrink-0 flex flex-col overflow-hidden"
+          onMouseDown={startResize}
+          className="shrink-0 flex items-center justify-center cursor-col-resize group"
+          style={{ width: "6px", backgroundColor: "#E8E2DB" }}
+        >
+          <div
+            className="w-0.5 h-8 rounded-full transition-colors"
+            style={{ backgroundColor: "#C8C2BA" }}
+          />
+        </div>
+
+        {/* Data Panel — resizable */}
+        <div
+          className="shrink-0 flex flex-col overflow-hidden"
           style={{
-            borderLeft: "1px solid #E8E2DB",
+            width: `${panelWidth}px`,
+            borderLeft: "none",
             backgroundColor: "#FFFFFF",
           }}
         >
