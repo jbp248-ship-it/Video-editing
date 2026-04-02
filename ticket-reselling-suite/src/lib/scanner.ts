@@ -411,6 +411,7 @@ async function extractFromDom(page: Page): Promise<ScanListing[]> {
         row: rowMatch ? rowMatch[1] : "",
         quantity: 1,
         priceWithFees: null,
+        ticketsRemaining: null,
       });
     }
 
@@ -441,6 +442,7 @@ async function extractFromDom(page: Page): Promise<ScanListing[]> {
         row: rowMatch ? rowMatch[1] : "",
         quantity: 1,
         priceWithFees: null,
+        ticketsRemaining: null,
       });
     });
 
