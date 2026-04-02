@@ -95,7 +95,7 @@ function ToolbarIconBtn({
     <button
       onClick={onClick}
       title={title}
-      className="flex h-8 w-8 items-center justify-center rounded-md transition-all duration-100"
+      className="flex h-7 w-7 items-center justify-center rounded-md transition-all duration-100"
       style={{ color: "#A89F91" }}
       onMouseEnter={(e) => {
         e.currentTarget.style.backgroundColor = "rgba(245,240,235,0.12)";
@@ -595,8 +595,8 @@ export function TicketBrowser() {
             })}
           </div>
 
-          {/* Panel content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Panel content — scrolls independently */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {dataTab === "live" && (
               <>
                 {(!data || data.count === 0) && (
@@ -614,9 +614,9 @@ export function TicketBrowser() {
                         <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clipRule="evenodd" />
                       </svg>
                     </div>
-                    <p className="text-sm font-medium text-warm-700">Browse to an event page</p>
+                    <p className="text-sm font-medium text-warm-700">Browse a ticket site to see pricing data here</p>
                     <p className="text-xs text-warm-400">
-                      Pricing data appears automatically as you browse
+                      Data appears automatically as you navigate event pages
                     </p>
                   </div>
                 )}
