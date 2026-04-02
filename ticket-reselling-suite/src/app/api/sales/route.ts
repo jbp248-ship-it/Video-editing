@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
 
 const CreateSaleSchema = z.object({
   inventoryId: z.string(),
-  platform: z.enum(["STUBHUB", "TICKETMASTER", "VIVID_SEATS", "SEATGEEK", "ETIX", "OTHER"]),
+  platform: z.enum(["STUBHUB", "TICKETMASTER", "VIVID_SEATS", "SEATGEEK", "ETIX", "AXS", "TICKPICK", "GAMETIME", "OTHER"]),
   salePrice: z.number().positive(),
   quantitySold: z.number().int().positive().default(1),
   source: z.string().default("MANUAL"),

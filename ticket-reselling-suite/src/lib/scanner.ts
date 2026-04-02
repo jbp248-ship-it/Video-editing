@@ -65,10 +65,13 @@ export async function closeBrowser(): Promise<void> {
 function detectPlatform(url: string): string {
   const lower = url.toLowerCase();
   if (lower.includes("stubhub.com")) return "STUBHUB";
-  if (lower.includes("ticketmaster.com")) return "TICKETMASTER";
+  if (lower.includes("ticketmaster.com") || lower.includes("livenation.com")) return "TICKETMASTER";
   if (lower.includes("vividseats.com")) return "VIVID_SEATS";
   if (lower.includes("seatgeek.com")) return "SEATGEEK";
   if (lower.includes("etix.com")) return "ETIX";
+  if (lower.includes("axs.com")) return "AXS";
+  if (lower.includes("tickpick.com")) return "TICKPICK";
+  if (lower.includes("gametime.co")) return "GAMETIME";
   return "OTHER";
 }
 
@@ -117,6 +120,18 @@ export async function scanUrl(url: string): Promise<ScanResult> {
         } else if (detectedPlatform === "SEATGEEK") {
           const { extractSeatGeekFromJson } = await import("./scanners/seatgeek");
           found = extractSeatGeekFromJson(body);
+        } else if (detectedPlatform === "STUBHUB") {
+          const { extractStubHubFromJson } = await import("./scanners/stubhub");
+          found = extractStubHubFromJson(body);
+        } else if (detectedPlatform === "AXS") {
+          const { extractAXSFromJson } = await import("./scanners/axs");
+          found = extractAXSFromJson(body);
+        } else if (detectedPlatform === "TICKPICK") {
+          const { extractTickPickFromJson } = await import("./scanners/tickpick");
+          found = extractTickPickFromJson(body);
+        } else if (detectedPlatform === "GAMETIME") {
+          const { extractGametimeFromJson } = await import("./scanners/gametime");
+          found = extractGametimeFromJson(body);
         }
       } catch {
         // Platform module not available yet — fall through to generic
@@ -206,6 +221,38 @@ export async function scanUrl(url: string): Promise<ScanResult> {
       } else if (platform === "SEATGEEK") {
         const { extractSeatGeekFromDom } = await import("./scanners/seatgeek");
         const domResult = await extractSeatGeekFromDom(page);
+        platformListings = domResult.listings;
+        platformResult.totalTicketsRemaining = domResult.totalTicketsRemaining;
+        if (!eventInfo.eventName && domResult.eventName) eventInfo.eventName = domResult.eventName;
+        if (!eventInfo.venue && domResult.venue) eventInfo.venue = domResult.venue;
+        if (!eventInfo.date && domResult.date) eventInfo.date = domResult.date;
+      } else if (platform === "STUBHUB") {
+        const { extractStubHubFromDom } = await import("./scanners/stubhub");
+        const domResult = await extractStubHubFromDom(page);
+        platformListings = domResult.listings;
+        platformResult.totalTicketsRemaining = domResult.totalTicketsRemaining;
+        if (!eventInfo.eventName && domResult.eventName) eventInfo.eventName = domResult.eventName;
+        if (!eventInfo.venue && domResult.venue) eventInfo.venue = domResult.venue;
+        if (!eventInfo.date && domResult.date) eventInfo.date = domResult.date;
+      } else if (platform === "AXS") {
+        const { extractAXSFromDom } = await import("./scanners/axs");
+        const domResult = await extractAXSFromDom(page);
+        platformListings = domResult.listings;
+        platformResult.totalTicketsRemaining = domResult.totalTicketsRemaining;
+        if (!eventInfo.eventName && domResult.eventName) eventInfo.eventName = domResult.eventName;
+        if (!eventInfo.venue && domResult.venue) eventInfo.venue = domResult.venue;
+        if (!eventInfo.date && domResult.date) eventInfo.date = domResult.date;
+      } else if (platform === "TICKPICK") {
+        const { extractTickPickFromDom } = await import("./scanners/tickpick");
+        const domResult = await extractTickPickFromDom(page);
+        platformListings = domResult.listings;
+        platformResult.totalTicketsRemaining = domResult.totalTicketsRemaining;
+        if (!eventInfo.eventName && domResult.eventName) eventInfo.eventName = domResult.eventName;
+        if (!eventInfo.venue && domResult.venue) eventInfo.venue = domResult.venue;
+        if (!eventInfo.date && domResult.date) eventInfo.date = domResult.date;
+      } else if (platform === "GAMETIME") {
+        const { extractGametimeFromDom } = await import("./scanners/gametime");
+        const domResult = await extractGametimeFromDom(page);
         platformListings = domResult.listings;
         platformResult.totalTicketsRemaining = domResult.totalTicketsRemaining;
         if (!eventInfo.eventName && domResult.eventName) eventInfo.eventName = domResult.eventName;
@@ -514,7 +561,7 @@ function computeStats(listings: ScanListing[]) {
 function cleanEventName(name: string): string {
   return name
     .replace(
-      /\s*[-|·]\s*(StubHub|Ticketmaster|Vivid Seats|SeatGeek|Etix).*$/i,
+      /\s*[-|·]\s*(StubHub|Ticketmaster|Vivid Seats|SeatGeek|Etix|AXS|TickPick|Gametime|Live Nation).*$/i,
       ""
     )
     .replace(/\s*[-|·]\s*Buy Tickets.*$/i, "")

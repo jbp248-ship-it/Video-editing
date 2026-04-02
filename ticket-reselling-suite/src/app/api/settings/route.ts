@@ -33,6 +33,9 @@ const VALID_SETTING_KEYS = new Set([
   "fee_VIVID_SEATS",
   "fee_SEATGEEK",
   "fee_ETIX",
+  "fee_AXS",
+  "fee_TICKPICK",
+  "fee_GAMETIME",
 ]);
 
 const UpsertSettingSchema = z.object({

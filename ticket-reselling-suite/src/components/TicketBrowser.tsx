@@ -51,6 +51,9 @@ const QUICK_LINKS = [
   { label: "VividSeats", url: "https://www.vividseats.com", color: "#059669" },
   { label: "SeatGeek", url: "https://seatgeek.com", color: "#EA580C" },
   { label: "Etix", url: "https://www.etix.com", color: "#DC2626" },
+  { label: "AXS", url: "https://www.axs.com", color: "#0EA5E9" },
+  { label: "TickPick", url: "https://www.tickpick.com", color: "#8B5CF6" },
+  { label: "Gametime", url: "https://gametime.co", color: "#10B981" },
 ];
 
 function fmt(n: number): string {

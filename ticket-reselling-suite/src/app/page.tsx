@@ -18,6 +18,9 @@ const PLATFORM_FEES: { key: string; label: string; defaultFee: number }[] = [
   { key: "fee_VIVID_SEATS", label: "Vivid Seats", defaultFee: 10 },
   { key: "fee_SEATGEEK", label: "SeatGeek", defaultFee: 12 },
   { key: "fee_ETIX", label: "Etix", defaultFee: 10 },
+  { key: "fee_AXS", label: "AXS", defaultFee: 10 },
+  { key: "fee_TICKPICK", label: "TickPick", defaultFee: 10 },
+  { key: "fee_GAMETIME", label: "Gametime", defaultFee: 10 },
 ];
 
 // ─── Settings Panel ───────────────────────────────────────────────────────────

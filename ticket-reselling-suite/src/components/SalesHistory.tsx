@@ -27,6 +27,9 @@ const PLATFORM_LABELS: Record<string, string> = {
   VIVID_SEATS: "Vivid Seats",
   SEATGEEK: "SeatGeek",
   ETIX: "Etix",
+  AXS: "AXS",
+  TICKPICK: "TickPick",
+  GAMETIME: "Gametime",
   OTHER: "Other",
 };
 

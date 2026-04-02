@@ -205,10 +205,13 @@ function injectCaptureScript(wc) {
       function detectPlatform() {
         var h = location.hostname;
         if (h.includes('stubhub.com')) return 'STUBHUB';
-        if (h.includes('ticketmaster.com')) return 'TICKETMASTER';
+        if (h.includes('ticketmaster.com') || h.includes('livenation.com')) return 'TICKETMASTER';
         if (h.includes('vividseats.com')) return 'VIVID_SEATS';
         if (h.includes('seatgeek.com')) return 'SEATGEEK';
         if (h.includes('etix.com')) return 'ETIX';
+        if (h.includes('axs.com')) return 'AXS';
+        if (h.includes('tickpick.com')) return 'TICKPICK';
+        if (h.includes('gametime.co')) return 'GAMETIME';
         return 'OTHER';
       }
 
@@ -400,7 +403,7 @@ function injectCaptureScript(wc) {
           // Store in window variable — safe, no referrer/history leakage
           window.__ticketOpsData = {
             platform: captured.platform,
-            eventName: captured.eventName.replace(/(\\s*[-|]\\s*(StubHub|Ticketmaster|Vivid|SeatGeek|Etix).*$)/i, '').trim(),
+            eventName: captured.eventName.replace(/(\\s*[-|]\\s*(StubHub|Ticketmaster|Vivid|SeatGeek|Etix|AXS|TickPick|Gametime|Live Nation).*$)/i, '').trim(),
             url: location.href,
             listings: unique.slice(0, 500),
             count: unique.length,

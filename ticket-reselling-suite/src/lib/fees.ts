@@ -39,6 +39,27 @@ const FEE_SCHEDULES: Record<string, FeeSchedule> = {
     processingFeePercent: 2.0,
     notes: "~10% seller fee + ~2% processing. Varies by venue contract.",
   },
+  AXS: {
+    platform: "AXS",
+    sellerFeePercent: 10.0,
+    processingFeeFlat: 0,
+    processingFeePercent: 2.0,
+    notes: "~10% seller fee + ~2% processing. AEG-affiliated venues.",
+  },
+  TICKPICK: {
+    platform: "TickPick",
+    sellerFeePercent: 10.0,
+    processingFeeFlat: 0,
+    processingFeePercent: 0,
+    notes: "~10% seller fee. No buyer fees (all-in pricing for buyers).",
+  },
+  GAMETIME: {
+    platform: "Gametime",
+    sellerFeePercent: 10.0,
+    processingFeeFlat: 0,
+    processingFeePercent: 0,
+    notes: "~10% seller fee. Mobile-first, last-minute deals.",
+  },
   OTHER: {
     platform: "Other",
     sellerFeePercent: 15.0,
