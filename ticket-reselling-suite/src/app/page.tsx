@@ -12,6 +12,7 @@ import { SalesHistory } from "@/components/SalesHistory";
 import { FlareScreener } from "@/components/FlareScreener";
 import { Analytics } from "@/components/Analytics";
 import { CSVImport } from "@/components/CSVImport";
+import { VelocityChart } from "@/components/VelocityChart";
 import type { DashboardStats } from "@/types";
 
 // ─── Platform fee defaults ────────────────────────────────────────────────────
@@ -267,7 +268,7 @@ export default function DashboardPage() {
         {/* Top Bar */}
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-warm-200 bg-white/80 backdrop-blur px-6">
           <h1 className="text-lg font-semibold capitalize text-warm-900">
-            {activeTab === "market" ? "Market Scanner" : activeTab === "browse" ? "Browse Ticket Sites" : activeTab === "screener" ? "FLARE Screener" : activeTab === "analytics" ? "P&L Analytics" : activeTab === "import" ? "CSV Import" : activeTab}
+            {activeTab === "market" ? "Market Scanner" : activeTab === "browse" ? "Browse Ticket Sites" : activeTab === "screener" ? "FLARE Screener" : activeTab === "analytics" ? "P&L Analytics" : activeTab === "import" ? "CSV Import" : activeTab === "velocity" ? "Supply/Demand Velocity" : activeTab}
           </h1>
           <div className="flex items-center gap-4">
             <input
@@ -397,6 +398,9 @@ export default function DashboardPage() {
               onMarkRead={handleMarkRead}
             />
           )}
+
+          {/* Supply/Demand Velocity View */}
+          {activeTab === "velocity" && <VelocityChart />}
 
           {/* FLARE Screener View */}
           {activeTab === "screener" && <FlareScreener />}
