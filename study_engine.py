@@ -1,19 +1,19 @@
 """
-study_engine.py — AI-powered study features using Groq (free tier).
+study_engine.py — Fully local AI study features. No API keys required.
 
-Uses the Groq API (free) with Llama 3 to transform raw Whisper-generated notes
-into structured summaries, study guides, compiled multi-day notes, and quizzes.
+Uses google/flan-t5-large (HuggingFace Transformers) running on-device to
+transform raw notes into structured summaries, study guides, compiled
+multi-day notes, and quizzes.
 
-Get a free API key at: https://console.groq.com
+Model is downloaded once (~800MB) on first use via HuggingFace hub.
 """
 
 import hashlib
 import json
 import logging
-import os
+import math
+import re
 from typing import Any
-
-from groq import Groq, AuthenticationError, RateLimitError, BadRequestError, APIStatusError, APIConnectionError
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -26,272 +26,219 @@ logging.basicConfig(
 )
 
 # ---------------------------------------------------------------------------
-# Client
+# Lazy model loading
 # ---------------------------------------------------------------------------
 
-MODEL = "llama-3.3-70b-versatile"  # Free tier, very capable
+_pipeline = None
+MODEL_NAME = "google/flan-t5-large"
+MAX_INPUT_TOKENS = 450   # conservative limit per chunk for flan-t5
+MAX_NEW_TOKENS = 512
 
-_client: "Groq | None" = None
 
+def _get_pipeline():
+    """Load the FLAN-T5-Large pipeline on first use (cached in memory after)."""
+    global _pipeline
+    if _pipeline is None:
+        logger.info("Loading %s model (first run — downloads ~800MB once)...", MODEL_NAME)
+        from transformers import pipeline
+        _pipeline = pipeline(
+            "text2text-generation",
+            model=MODEL_NAME,
+            max_new_tokens=MAX_NEW_TOKENS,
+        )
+        logger.info("Model loaded.")
+    return _pipeline
 
-def _get_client() -> "Groq":
-    """Lazily initialize the Groq client so missing key only errors at call time."""
-    global _client
-    if _client is None:
-        _client = Groq()  # reads GROQ_API_KEY from env
-    return _client
 
 # ---------------------------------------------------------------------------
-# In-memory cache
+# In-memory result cache
 # ---------------------------------------------------------------------------
 
 _cache: dict[str, Any] = {}
 
 
 def _cache_key(text: str, func_name: str) -> str:
-    """Return a stable cache key for the given text and function name."""
     return f"{func_name}:{hashlib.md5(text.encode()).hexdigest()}"
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Text chunking helpers
 # ---------------------------------------------------------------------------
 
-def _call_groq(
-    *,
-    system: str,
-    user_content: str,
-    func_name: str,
-    cache_key_text: str,
-    max_tokens: int = 4096,
-) -> str:
-    """
-    Make a single Groq API call with caching and error handling.
+def _split_into_chunks(text: str, max_words: int = 300) -> list[str]:
+    """Split text into word-count-bounded chunks, breaking on sentences."""
+    sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    chunks, current, count = [], [], 0
+    for sent in sentences:
+        words = len(sent.split())
+        if count + words > max_words and current:
+            chunks.append(" ".join(current))
+            current, count = [], 0
+        current.append(sent)
+        count += words
+    if current:
+        chunks.append(" ".join(current))
+    return chunks or [text]
 
-    Returns the text response, or a fallback error string on failure.
-    """
-    key = _cache_key(cache_key_text, func_name)
-    if key in _cache:
-        logger.info("Cache hit for %s (key=%s)", func_name, key[:32])
-        return _cache[key]
 
-    logger.info("Calling Groq for %s (model=%s)", func_name, MODEL)
-    try:
-        response = _get_client().chat.completions.create(
-            model=MODEL,
-            max_tokens=max_tokens,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_content},
-            ],
-        )
-
-        result = response.choices[0].message.content or ""
-        logger.info(
-            "%s complete — input_tokens=%d output_tokens=%d",
-            func_name,
-            response.usage.prompt_tokens,
-            response.usage.completion_tokens,
-        )
-        _cache[key] = result
-        return result
-
-    except AuthenticationError:
-        logger.error("Authentication failed — check GROQ_API_KEY")
-        return "[Error] Authentication failed. Please verify your GROQ_API_KEY in the .env file."
-    except RateLimitError:
-        logger.warning("Rate limit hit for %s", func_name)
-        return "[Error] Rate limit reached. Please retry after a short wait."
-    except BadRequestError as exc:
-        logger.error("Bad request in %s: %s", func_name, exc)
-        return f"[Error] Invalid request: {exc}"
-    except APIStatusError as exc:
-        logger.error("API error in %s: status=%d msg=%s", func_name, exc.status_code, exc)
-        return f"[Error] API error ({exc.status_code}). Please try again later."
-    except APIConnectionError:
-        logger.error("Network error in %s", func_name)
-        return "[Error] Network connection failed. Check your internet connection."
+def _run_on_chunks(prompt_template: str, text: str, join_sep: str = "\n") -> str:
+    """Run the model on each chunk of text and join results."""
+    pipe = _get_pipeline()
+    chunks = _split_into_chunks(text)
+    results = []
+    for i, chunk in enumerate(chunks):
+        prompt = prompt_template.format(text=chunk)
+        logger.info("Processing chunk %d/%d", i + 1, len(chunks))
+        out = pipe(prompt)[0]["generated_text"].strip()
+        if out:
+            results.append(out)
+    return join_sep.join(results)
 
 
 # ---------------------------------------------------------------------------
 # 1. generate_structured_summary
 # ---------------------------------------------------------------------------
 
-_SUMMARY_SYSTEM = (
-    "You are an expert study assistant. Transform raw notes into a clean, structured "
-    "summary for studying. Be concise, avoid fluff, use clear headers and bullets."
-)
-
-_SUMMARY_PROMPT_TEMPLATE = """\
-Transform the following raw notes into a structured markdown summary using exactly this format:
-
-# [Auto-generated title based on topic]
-
-## Overview
-- 2-3 sentence high-level summary
-
-## Key Concepts
-- Concept 1: explanation
-- Concept 2: explanation
-...
-
-## Important Details
-- Supporting bullets
-
-## Connections / Insights
-- Patterns, relationships, takeaways
-
-## Quick Review
-- Short bullet recap for fast studying
-
----
-Raw notes:
-{notes_text}
-"""
-
-
 def generate_structured_summary(notes_text: str) -> str:
     """
-    Transform raw notes text into a clean, structured markdown summary.
-
-    Args:
-        notes_text: Raw transcript-based notes as a plain string.
-
-    Returns:
-        Structured markdown summary string, or an error message string on failure.
+    Transform raw notes into a structured markdown summary using FLAN-T5-Large.
+    Runs entirely locally — no API key needed.
     """
     if not notes_text or not notes_text.strip():
-        logger.warning("generate_structured_summary called with empty notes")
         return "[Error] No notes provided."
 
-    return _call_groq(
-        system=_SUMMARY_SYSTEM,
-        user_content=_SUMMARY_PROMPT_TEMPLATE.format(notes_text=notes_text),
-        func_name="generate_structured_summary",
-        cache_key_text=notes_text,
-        max_tokens=4096,
-    )
+    key = _cache_key(notes_text, "generate_structured_summary")
+    if key in _cache:
+        return _cache[key]
+
+    logger.info("Generating structured summary locally...")
+
+    try:
+        pipe = _get_pipeline()
+        chunks = _split_into_chunks(notes_text)
+
+        # Summarize each chunk
+        chunk_summaries = []
+        for i, chunk in enumerate(chunks):
+            logger.info("Summarizing chunk %d/%d", i + 1, len(chunks))
+            prompt = f"Summarize the following lecture notes into key points:\n{chunk}"
+            out = pipe(prompt)[0]["generated_text"].strip()
+            if out:
+                chunk_summaries.append(out)
+
+        combined = "\n".join(chunk_summaries)
+
+        # Generate overview from combined summaries
+        overview_prompt = f"Write a 2-3 sentence overview of these notes:\n{combined[:1000]}"
+        overview = pipe(overview_prompt)[0]["generated_text"].strip()
+
+        # Key concepts
+        concepts_prompt = f"List the main concepts and ideas from these notes as bullet points:\n{combined[:1000]}"
+        concepts = pipe(concepts_prompt)[0]["generated_text"].strip()
+
+        # Quick review
+        review_prompt = f"Create a quick review list of the most important facts from:\n{combined[:800]}"
+        review = pipe(review_prompt)[0]["generated_text"].strip()
+
+        # Build markdown output
+        title_prompt = f"Give a short title (5 words max) for these notes:\n{notes_text[:300]}"
+        title = pipe(title_prompt)[0]["generated_text"].strip()
+
+        result = f"""# {title}
+
+## Overview
+{overview}
+
+## Key Concepts
+{concepts}
+
+## Detailed Notes
+{combined}
+
+## Quick Review
+{review}
+"""
+        _cache[key] = result
+        return result
+
+    except Exception as exc:
+        logger.error("generate_structured_summary failed: %s", exc)
+        return f"[Error] Summary generation failed: {exc}"
 
 
 # ---------------------------------------------------------------------------
 # 2. generate_study_guide
 # ---------------------------------------------------------------------------
 
-_STUDY_GUIDE_SYSTEM = (
-    "You are an expert study assistant. Create comprehensive, exam-ready study guides "
-    "from raw notes. Include key terms, practice questions, and memory aids."
-)
-
-_STUDY_GUIDE_PROMPT_TEMPLATE = """\
-Using the structured summary below, produce a complete study guide in exactly this format:
-
-# Study Guide
-
-## Summary
-{structured_summary}
-
-## Key Terms
-- Term: definition
-...
-
-## Practice Questions
-- Question 1
-- Question 2
-...
-
-## Memory Aids
-- Tips, mnemonics, or simplifications to remember the material
-...
-"""
-
-
 def generate_study_guide(notes_text: str) -> str:
     """
-    Produce a comprehensive study guide from raw notes.
-
-    Internally calls generate_structured_summary to build the Summary section,
-    then asks Groq to add Key Terms, Practice Questions, and Memory Aids.
-
-    Args:
-        notes_text: Raw transcript-based notes as a plain string.
-
-    Returns:
-        Structured study guide markdown string, or an error message string on failure.
+    Produce a study guide with key terms, practice questions, and memory aids.
+    Runs entirely locally — no API key needed.
     """
     if not notes_text or not notes_text.strip():
-        logger.warning("generate_study_guide called with empty notes")
         return "[Error] No notes provided."
 
-    logger.info("Generating structured summary for study guide...")
-    structured_summary = generate_structured_summary(notes_text)
-    if structured_summary.startswith("[Error]"):
-        logger.error("Summary generation failed; cannot produce study guide")
-        return structured_summary
+    key = _cache_key(notes_text, "generate_study_guide")
+    if key in _cache:
+        return _cache[key]
 
-    user_content = _STUDY_GUIDE_PROMPT_TEMPLATE.format(
-        structured_summary=structured_summary
-    )
+    logger.info("Generating study guide locally...")
 
-    cache_key_text = notes_text + structured_summary
+    try:
+        pipe = _get_pipeline()
 
-    return _call_groq(
-        system=_STUDY_GUIDE_SYSTEM,
-        user_content=user_content,
-        func_name="generate_study_guide",
-        cache_key_text=cache_key_text,
-        max_tokens=6144,
-    )
+        # Get summary first (uses cache if already generated)
+        summary = generate_structured_summary(notes_text)
+
+        truncated = notes_text[:1200]
+
+        # Key terms
+        terms_prompt = f"List important terms and their definitions from these notes:\n{truncated}"
+        terms = pipe(terms_prompt)[0]["generated_text"].strip()
+
+        # Practice questions
+        questions_prompt = f"Write 5 practice questions to test understanding of these notes:\n{truncated}"
+        questions = pipe(questions_prompt)[0]["generated_text"].strip()
+
+        # Memory aids
+        aids_prompt = f"Suggest memory tips or mnemonics to remember the key ideas from:\n{truncated}"
+        aids = pipe(aids_prompt)[0]["generated_text"].strip()
+
+        result = f"""# Study Guide
+
+## Summary
+{summary}
+
+## Key Terms
+{terms}
+
+## Practice Questions
+{questions}
+
+## Memory Aids
+{aids}
+"""
+        _cache[key] = result
+        return result
+
+    except Exception as exc:
+        logger.error("generate_study_guide failed: %s", exc)
+        return f"[Error] Study guide generation failed: {exc}"
 
 
 # ---------------------------------------------------------------------------
 # 3. compile_notes
 # ---------------------------------------------------------------------------
 
-_COMPILE_SYSTEM = (
-    "You are an expert study assistant. Merge multiple days of notes into one cohesive "
-    "document. Remove redundancy, organize by theme, preserve all important information."
-)
-
-_COMPILE_PROMPT_TEMPLATE = """\
-Merge the following multi-day notes into a single, cohesive reference document \
-using exactly this format:
-
-# Compiled Notes
-
-## Major Themes
-- Theme-based grouping across days
-
-## Consolidated Concepts
-- Clean, merged explanations (no redundancy)
-
-## Key Takeaways
-- High-value summary bullets
-
-## Gaps / Missing Info
-- Unclear, contradictory, or weakly covered areas
-
----
-Notes by date:
-
-{dated_notes}
-"""
-
-
 def compile_notes(notes_list: list[dict]) -> str:
     """
-    Merge multiple days of notes into one cohesive compiled document.
-
-    Args:
-        notes_list: List of dicts, each with "date" (str) and "content" (str) keys.
-
-    Returns:
-        Compiled markdown notes string, or an error message string on failure.
+    Merge multiple days of notes into one cohesive document.
+    Runs entirely locally — no API key needed.
     """
     if not notes_list:
-        logger.warning("compile_notes called with empty list")
         return "[Error] No notes provided."
 
-    dated_sections: list[str] = []
+    dated_sections = []
     for entry in notes_list:
         date = entry.get("date", "Unknown date")
         content = entry.get("content", "").strip()
@@ -299,175 +246,175 @@ def compile_notes(notes_list: list[dict]) -> str:
             dated_sections.append(f"### {date}\n{content}")
 
     if not dated_sections:
-        logger.warning("compile_notes: all entries had empty content")
         return "[Error] All provided notes were empty."
 
-    dated_notes = "\n\n".join(dated_sections)
-    cache_key_text = dated_notes
+    key = _cache_key("\n".join(dated_sections), "compile_notes")
+    if key in _cache:
+        return _cache[key]
 
-    return _call_groq(
-        system=_COMPILE_SYSTEM,
-        user_content=_COMPILE_PROMPT_TEMPLATE.format(dated_notes=dated_notes),
-        func_name="compile_notes",
-        cache_key_text=cache_key_text,
-        max_tokens=6144,
-    )
+    logger.info("Compiling notes from %d days locally...", len(dated_sections))
+
+    try:
+        pipe = _get_pipeline()
+        all_content = "\n\n".join(dated_sections)
+
+        # Summarize each day's notes
+        compiled_days = []
+        for entry in notes_list:
+            date = entry.get("date", "Unknown date")
+            content = entry.get("content", "").strip()
+            if not content:
+                continue
+            prompt = f"Summarize the key points from these notes:\n{content[:800]}"
+            day_summary = pipe(prompt)[0]["generated_text"].strip()
+            compiled_days.append(f"**{date}**: {day_summary}")
+
+        # Find major themes across all days
+        themes_prompt = f"What are the main recurring themes across these notes:\n{all_content[:1000]}"
+        themes = pipe(themes_prompt)[0]["generated_text"].strip()
+
+        # Key takeaways
+        takeaways_prompt = f"List the most important takeaways from all these notes:\n{all_content[:1000]}"
+        takeaways = pipe(takeaways_prompt)[0]["generated_text"].strip()
+
+        result = f"""# Compiled Notes
+
+## Major Themes
+{themes}
+
+## By Date
+{chr(10).join(compiled_days)}
+
+## Key Takeaways
+{takeaways}
+"""
+        _cache[key] = result
+        return result
+
+    except Exception as exc:
+        logger.error("compile_notes failed: %s", exc)
+        return f"[Error] Compilation failed: {exc}"
 
 
 # ---------------------------------------------------------------------------
 # 4. generate_quiz
 # ---------------------------------------------------------------------------
 
-_QUIZ_SYSTEM = (
-    "You are an expert quiz designer and study assistant. Generate mixed-format quiz "
-    "questions from study notes. Always respond with valid JSON only — no prose, no "
-    "markdown fences, no explanation outside the JSON structure."
-)
-
-_QUIZ_PROMPT_TEMPLATE = """\
-Generate a quiz of 5–10 mixed questions (multiple choice, short answer, and concept \
-explanation) based on the notes below.
-
-Return ONLY a JSON object with this exact structure — no other text:
-
-{{
-  "questions": [
-    {{
-      "id": 1,
-      "type": "multiple_choice",
-      "question": "...",
-      "options": ["A. ...", "B. ...", "C. ...", "D. ..."],
-      "answer": "A",
-      "explanation": "..."
-    }},
-    {{
-      "id": 2,
-      "type": "short_answer",
-      "question": "...",
-      "options": null,
-      "answer": "full answer text",
-      "explanation": "..."
-    }},
-    {{
-      "id": 3,
-      "type": "concept",
-      "question": "Explain the concept of ...",
-      "options": null,
-      "answer": "full explanation",
-      "explanation": "..."
-    }}
-  ]
-}}
-
-Rules:
-- Include at least 2 multiple_choice, 2 short_answer, and 1 concept question.
-- For multiple_choice: "options" is a list of 4 strings; "answer" is the letter only (A/B/C/D).
-- For short_answer and concept: "options" is null; "answer" is a complete text answer.
-- Every question must have an "explanation" field.
-
-Notes:
-{notes_text}
-"""
-
-_QUIZ_FALLBACK: dict = {
-    "questions": [
-        {
-            "id": 1,
-            "type": "short_answer",
-            "question": "Quiz generation failed. Please review your notes manually.",
-            "options": None,
-            "answer": "N/A",
-            "explanation": "An error occurred while contacting the AI service.",
-        }
-    ]
-}
-
-
 def generate_quiz(notes_text: str) -> dict:
     """
-    Generate a mixed-format quiz from raw notes.
-
-    Args:
-        notes_text: Raw transcript-based notes as a plain string.
-
-    Returns:
-        Dict with a "questions" key containing a list of question dicts.
+    Generate a mixed quiz from raw notes using FLAN-T5-Large.
+    Runs entirely locally — no API key needed.
     """
     if not notes_text or not notes_text.strip():
-        logger.warning("generate_quiz called with empty notes")
-        return {
-            "questions": [
-                {
-                    "id": 1,
-                    "type": "short_answer",
-                    "question": "No notes were provided.",
-                    "options": None,
-                    "answer": "N/A",
-                    "explanation": "Please supply notes to generate a quiz.",
-                }
-            ]
-        }
+        return _empty_quiz("No notes were provided.")
 
     key = _cache_key(notes_text, "generate_quiz")
     if key in _cache:
-        logger.info("Cache hit for generate_quiz (key=%s)", key[:32])
         return _cache[key]
 
-    logger.info("Calling Groq for generate_quiz (model=%s)", MODEL)
+    logger.info("Generating quiz locally...")
+
     try:
-        response = _get_client().chat.completions.create(
-            model=MODEL,
-            max_tokens=4096,
-            messages=[
-                {"role": "system", "content": _QUIZ_SYSTEM},
-                {
-                    "role": "user",
-                    "content": _QUIZ_PROMPT_TEMPLATE.format(notes_text=notes_text),
-                },
-            ],
-        )
+        pipe = _get_pipeline()
+        truncated = notes_text[:1500]
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', truncated) if len(s.split()) > 6]
+        # Pick up to 7 sentences spread through the text
+        step = max(1, len(sentences) // 7)
+        selected = sentences[::step][:7]
 
-        raw_text = (response.choices[0].message.content or "").strip()
+        questions = []
+        qid = 1
 
-        logger.info(
-            "generate_quiz complete — input_tokens=%d output_tokens=%d",
-            response.usage.prompt_tokens,
-            response.usage.completion_tokens,
-        )
+        # Multiple choice questions (first 3 sentences)
+        for sent in selected[:3]:
+            q_prompt = f"Write a multiple choice question about this fact with 4 options (A, B, C, D) and mark the correct answer:\n{sent}"
+            raw = pipe(q_prompt)[0]["generated_text"].strip()
+            questions.append({
+                "id": qid,
+                "type": "multiple_choice",
+                "question": f"Which of the following best describes: {sent[:80]}...?" if len(sent) > 80 else f"Question about: {sent}",
+                "options": _extract_or_make_options(raw, sent),
+                "answer": "A",
+                "explanation": raw[:200] if raw else sent,
+            })
+            qid += 1
 
-        # Strip optional markdown fences the model might include.
-        if raw_text.startswith("```"):
-            lines = raw_text.splitlines()
-            inner_lines = lines[1:-1] if lines[-1].startswith("```") else lines[1:]
-            raw_text = "\n".join(inner_lines).strip()
+        # Short answer questions (next 3 sentences)
+        for sent in selected[3:6]:
+            q_prompt = f"Write a short answer question to test understanding of:\n{sent}"
+            question_text = pipe(q_prompt)[0]["generated_text"].strip()
+            if not question_text or len(question_text) < 5:
+                question_text = f"Explain in your own words: {sent[:100]}"
 
-        quiz_dict = json.loads(raw_text)
+            a_prompt = f"Provide a concise answer to: {question_text}\nBased on: {sent}"
+            answer_text = pipe(a_prompt)[0]["generated_text"].strip()
 
-        if "questions" not in quiz_dict or not isinstance(quiz_dict["questions"], list):
-            raise ValueError("Response missing 'questions' list")
+            questions.append({
+                "id": qid,
+                "type": "short_answer",
+                "question": question_text,
+                "options": None,
+                "answer": answer_text or sent,
+                "explanation": sent,
+            })
+            qid += 1
 
-        logger.info("Parsed %d quiz questions", len(quiz_dict["questions"]))
-        _cache[key] = quiz_dict
-        return quiz_dict
+        # Concept question (last sentence or overall)
+        concept_src = selected[6] if len(selected) > 6 else truncated[:300]
+        c_prompt = f"Write a conceptual question asking someone to explain the main idea of:\n{concept_src[:400]}"
+        concept_q = pipe(c_prompt)[0]["generated_text"].strip()
+        if not concept_q or len(concept_q) < 5:
+            concept_q = "Explain the main concept covered in these notes."
 
-    except json.JSONDecodeError as exc:
-        logger.error("generate_quiz: JSON parse error — %s", exc)
-        return _QUIZ_FALLBACK.copy()
-    except ValueError as exc:
-        logger.error("generate_quiz: unexpected structure — %s", exc)
-        return _QUIZ_FALLBACK.copy()
-    except AuthenticationError:
-        logger.error("Authentication failed — check GROQ_API_KEY")
-        return _QUIZ_FALLBACK.copy()
-    except RateLimitError:
-        logger.warning("Rate limit hit for generate_quiz")
-        return _QUIZ_FALLBACK.copy()
-    except BadRequestError as exc:
-        logger.error("Bad request in generate_quiz: %s", exc)
-        return _QUIZ_FALLBACK.copy()
-    except APIStatusError as exc:
-        logger.error("API error in generate_quiz: status=%d msg=%s", exc.status_code, exc)
-        return _QUIZ_FALLBACK.copy()
-    except APIConnectionError:
-        logger.error("Network error in generate_quiz")
-        return _QUIZ_FALLBACK.copy()
+        exp_prompt = f"Explain the main concept in:\n{concept_src[:400]}"
+        concept_ans = pipe(exp_prompt)[0]["generated_text"].strip()
+
+        questions.append({
+            "id": qid,
+            "type": "concept",
+            "question": concept_q,
+            "options": None,
+            "answer": concept_ans or concept_src[:200],
+            "explanation": concept_src[:200],
+        })
+
+        result = {"questions": questions}
+        _cache[key] = result
+        return result
+
+    except Exception as exc:
+        logger.error("generate_quiz failed: %s", exc)
+        return _empty_quiz(f"Quiz generation failed: {exc}")
+
+
+def _extract_or_make_options(raw: str, context: str) -> list[str]:
+    """Extract A/B/C/D options from model output, or generate basic ones."""
+    lines = raw.splitlines()
+    options = []
+    for line in lines:
+        line = line.strip()
+        if re.match(r'^[A-D][.)]\s+', line):
+            options.append(line)
+    if len(options) == 4:
+        return options
+    # Fallback: make simple true/false style options
+    short = context[:60].rstrip(".,;")
+    return [
+        f"A. {short}",
+        f"B. The opposite of what was stated",
+        f"C. None of the above",
+        f"D. All of the above",
+    ]
+
+
+def _empty_quiz(reason: str) -> dict:
+    return {
+        "questions": [{
+            "id": 1,
+            "type": "short_answer",
+            "question": reason,
+            "options": None,
+            "answer": "N/A",
+            "explanation": "Please provide notes to generate a quiz.",
+        }]
+    }
