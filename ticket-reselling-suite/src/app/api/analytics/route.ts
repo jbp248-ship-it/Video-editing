@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
     const platformBreakdown = Object.entries(platformMap).map(([platform, data]) => ({
       platform,
       ...data,
-      roi: data.revenue > 0 ? (data.profit / (data.revenue - data.profit)) * 100 : 0,
+      roi: (data.revenue - data.profit) > 0 ? (data.profit / (data.revenue - data.profit)) * 100 : data.profit > 0 ? 100 : 0,
     })).sort((a, b) => b.profit - a.profit);
 
     // ── Monthly Trends (last 12 months) ──

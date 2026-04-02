@@ -116,9 +116,7 @@ export function calculateProfit(
   );
   const netRevenue = roundCents(grossRevenue - platformFee - processingFee);
 
-  const costBasis = roundCents(
-    (totalPurchaseCost / totalLotQuantity) * quantity
-  );
+  const costBasis = totalLotQuantity > 0 ? roundCents((totalPurchaseCost / totalLotQuantity) * quantity) : 0;
   const netProfit = roundCents(netRevenue - costBasis);
   const marginPercent =
     costBasis > 0 ? roundCents((netProfit / costBasis) * 100) : 0;

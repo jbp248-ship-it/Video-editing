@@ -9,23 +9,30 @@ export async function GET(req: NextRequest) {
   const authError = requireAuth(req);
   if (authError) return authError;
 
-  const { searchParams } = new URL(req.url);
-  const search = searchParams.get("search");
+  try {
+    const { searchParams } = new URL(req.url);
+    const search = searchParams.get("search");
 
-  const where: Record<string, unknown> = {};
-  if (search) {
-    where.name = { contains: search };
+    const where: Record<string, unknown> = {};
+    if (search) {
+      where.name = { contains: search };
+    }
+
+    const events = await prisma.event.findMany({
+      where,
+      include: {
+        _count: { select: { inventory: true, marketSnapshots: true } },
+      },
+      orderBy: { eventDate: "asc" },
+    });
+
+    return NextResponse.json(events);
+  } catch {
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
-
-  const events = await prisma.event.findMany({
-    where,
-    include: {
-      _count: { select: { inventory: true, marketSnapshots: true } },
-    },
-    orderBy: { eventDate: "asc" },
-  });
-
-  return NextResponse.json(events);
 }
 
 // ─── POST /api/events ────────────────────────────────────────────────────────
@@ -46,16 +53,23 @@ export async function POST(req: NextRequest) {
   const authError = requireAuth(req);
   if (authError) return authError;
 
-  const body = await req.json();
-  const parsed = CreateEventSchema.safeParse(body);
+  try {
+    const body = await req.json();
+    const parsed = CreateEventSchema.safeParse(body);
 
-  if (!parsed.success) {
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const event = await prisma.event.create({ data: parsed.data });
+    return NextResponse.json(event, { status: 201 });
+  } catch {
     return NextResponse.json(
-      { error: parsed.error.flatten() },
-      { status: 400 }
+      { error: "Internal server error" },
+      { status: 500 }
     );
   }
-
-  const event = await prisma.event.create({ data: parsed.data });
-  return NextResponse.json(event, { status: 201 });
 }

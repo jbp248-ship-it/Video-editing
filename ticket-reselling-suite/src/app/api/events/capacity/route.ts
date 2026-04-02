@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 // ─── POST /api/events/capacity ──────────────────────────────────────────────
@@ -40,7 +41,16 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(event);
-  } catch {
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2025"
+    ) {
+      return NextResponse.json(
+        { error: "Event not found" },
+        { status: 404 }
+      );
+    }
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
