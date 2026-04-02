@@ -9,7 +9,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "electron:dev": "electron .",
+    "electron:dev": "npx prisma generate && electron .",
     "generate-icon": "node scripts/generate-icon.js",
     "electron:build": "node scripts/generate-icon.js && next build && electron-builder --win",
     "postinstall": "prisma generate && npx playwright install chromium",

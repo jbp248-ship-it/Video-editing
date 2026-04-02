@@ -69,6 +69,13 @@ function startNextServer() {
   nextProcess.stderr.on("data", (d) => console.error(`[next] ${d.toString().trim()}`));
   nextProcess.on("close", (code) => {
     console.log(`Next.js exited with code ${code}`);
+    // If Next.js crashes during startup, retry once
+    if (code !== 0 && !nextProcess._retried) {
+      console.log("Retrying Next.js startup...");
+      nextProcess._retried = true;
+      setTimeout(() => startNextServer(), 2000);
+      return;
+    }
     if (mainWindow && !mainWindow.isDestroyed()) app.quit();
   });
 }
