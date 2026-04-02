@@ -1,7 +1,8 @@
-const { app, BrowserWindow, BrowserView, ipcMain, shell, globalShortcut } = require("electron");
+const { app, BrowserWindow, BrowserView, ipcMain, shell, globalShortcut, dialog } = require("electron");
 const { spawn, execSync } = require("child_process");
 const path = require("path");
 const http = require("http");
+const net = require("net");
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -48,6 +49,15 @@ function initDatabase() {
   } catch (err) {
     console.error("Database init failed:", err.message);
   }
+}
+
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => { server.close(); resolve(true); });
+    server.listen(port, "127.0.0.1");
+  });
 }
 
 function startNextServer() {
@@ -448,6 +458,17 @@ app.whenReady().then(async () => {
 
   // Show window immediately with splash — user sees the app right away
   createWindow();
+
+  // Check port availability before starting
+  const portFree = await isPortFree(PORT);
+  if (!portFree) {
+    dialog.showErrorBox(
+      "TicketOps — Port In Use",
+      `Port ${PORT} is already in use. Close any other TicketOps window and try again.`
+    );
+    app.quit();
+    return;
+  }
 
   // Boot everything in the background
   initDatabase();

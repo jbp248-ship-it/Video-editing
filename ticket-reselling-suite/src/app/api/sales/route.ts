@@ -82,14 +82,26 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Calculate profit using the transactionally-consistent inventory data
+  // 2. Load persisted fee setting for this platform (falls back to hardcoded default)
+  const feeKey = `fee_${data.platform}`;
+  const feeSetting = await prisma.setting.findUnique({ where: { key: feeKey } }).catch(() => null);
+  const persistedFeePercent = feeSetting ? parseFloat(feeSetting.value) : undefined;
+  const resolvedFeeOverrides = {
+    ...data.feeOverrides,
+    // Only override if we have a valid persisted value and caller didn't supply one
+    ...(persistedFeePercent != null && !isNaN(persistedFeePercent) && !data.feeOverrides?.sellerFeePercent
+      ? { sellerFeePercent: persistedFeePercent }
+      : {}),
+  };
+
+  // 3. Calculate profit using the transactionally-consistent inventory data
   const profit = calculateProfit(
     data.platform,
     data.salePrice,
     data.quantitySold,
     lockResult.inventory.purchasePrice,
     lockResult.inventory.quantity,
-    data.feeOverrides
+    resolvedFeeOverrides
   );
 
   // 3. Create sale record

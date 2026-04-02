@@ -266,7 +266,7 @@ export default function DashboardPage() {
               placeholder="Search events..."
               className="rounded-lg border border-warm-200 bg-warm-50 px-3 py-1.5 text-sm text-warm-700 placeholder-warm-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20 w-64"
             />
-            <button className="btn-primary">+ Add Tickets</button>
+            <button className="btn-primary" onClick={() => setActiveTab("inventory")}>+ Add Tickets</button>
           </div>
         </header>
 
