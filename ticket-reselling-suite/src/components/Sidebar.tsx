@@ -180,17 +180,68 @@ export function Sidebar({ activeTab, onTabChange, alertCount }: SidebarProps) {
         })}
       </nav>
 
-      {/* Footer — version / branding hint */}
-      {!collapsed && (
-        <div
-          className="shrink-0 px-4 py-3 border-t"
-          style={{ borderColor: "#4A4539" }}
+      {/* Footer — bell + version */}
+      <div
+        className="shrink-0 border-t"
+        style={{ borderColor: "#4A4539" }}
+      >
+        {/* Notification bell */}
+        <button
+          onClick={() => onTabChange("alerts")}
+          className="flex w-full items-center gap-3 py-2.5 text-sm transition-all duration-150 relative"
+          style={{
+            padding: collapsed ? "10px 0" : "10px 16px",
+            justifyContent: collapsed ? "center" : "flex-start",
+            backgroundColor: activeTab === "alerts" ? "rgba(245, 158, 11, 0.12)" : "transparent",
+            color: activeTab === "alerts" ? "#F59E0B" : "#8C8680",
+          }}
+          onMouseEnter={(e) => {
+            if (activeTab !== "alerts") {
+              e.currentTarget.style.backgroundColor = "rgba(245,240,235,0.07)";
+              e.currentTarget.style.color = "#D4CAC0";
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (activeTab !== "alerts") {
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = "#8C8680";
+            }
+          }}
+          title="Alerts"
         >
-          <p className="text-[10px] font-medium" style={{ color: "#4A4539" }}>
-            TicketOps v1.0
-          </p>
-        </div>
-      )}
+          <span className="shrink-0 relative">
+            <svg className="h-[18px] w-[18px]" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+            </svg>
+            {alertCount > 0 && (
+              <span
+                className="absolute -top-1.5 -right-1.5 rounded-full px-1 py-0.5 text-[9px] font-bold text-white leading-none"
+                style={{
+                  backgroundColor: "#DC2626",
+                  minWidth: "16px",
+                  textAlign: "center",
+                }}
+              >
+                {alertCount > 99 ? "99+" : alertCount}
+              </span>
+            )}
+          </span>
+          {!collapsed && (
+            <span className="flex-1 text-left font-medium truncate">
+              Alerts
+            </span>
+          )}
+        </button>
+
+        {/* Version */}
+        {!collapsed && (
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-medium" style={{ color: "#4A4539" }}>
+              TicketOps v1.0
+            </p>
+          </div>
+        )}
+      </div>
     </aside>
   );
 }
