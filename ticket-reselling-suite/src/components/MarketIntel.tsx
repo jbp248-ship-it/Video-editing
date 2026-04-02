@@ -6,12 +6,14 @@ import { TicketBrowser } from "./TicketBrowser";
 import { MarketScanner } from "./MarketScanner";
 import { VelocityChart } from "./VelocityChart";
 import { FlareScreener } from "./FlareScreener";
+import { PredictionsPanel } from "./PredictionsPanel";
 
 const SUB_TABS = [
   { id: "browse", label: "Browse Sites" },
   { id: "scan", label: "Market Scanner" },
   { id: "demand", label: "Supply & Demand" },
   { id: "flare", label: "FLARE Screener" },
+  { id: "predictions", label: "Predictions" },
 ];
 
 function TabErrorFallback({ tabName }: { tabName: string }) {
@@ -78,6 +80,11 @@ export function MarketIntel() {
       {subTab === "flare" && (
         <ErrorBoundary fallback={<TabErrorFallback tabName="FLARE Screener" />}>
           <FlareScreener />
+        </ErrorBoundary>
+      )}
+      {subTab === "predictions" && (
+        <ErrorBoundary fallback={<TabErrorFallback tabName="Predictions" />}>
+          <PredictionsPanel />
         </ErrorBoundary>
       )}
     </div>
