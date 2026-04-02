@@ -14,22 +14,41 @@ export function CSVImport() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      setCsv(text);
-      setPreview(null);
-      setResult(null);
-    };
-    reader.readAsText(file);
+    try {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const text = e.target?.result as string;
+          setCsv(text ?? "");
+          setPreview(null);
+          setResult(null);
+        } catch (err) {
+          console.error("[CSVImport] Failed to read file content:", err);
+          setResult({ created: 0, errors: ["Failed to read the file content."] });
+        }
+      };
+      reader.onerror = () => {
+        console.error("[CSVImport] FileReader error");
+        setResult({ created: 0, errors: ["Failed to read the file. Please try again."] });
+      };
+      reader.readAsText(file);
+    } catch (err) {
+      console.error("[CSVImport] FileReader init error:", err);
+      setResult({ created: 0, errors: ["Failed to initialize file reader."] });
+    }
   };
 
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file && file.name.endsWith(".csv")) {
-      handleFile(file);
+    try {
+      const file = e.dataTransfer?.files?.[0];
+      if (file && file.name.endsWith(".csv")) {
+        handleFile(file);
+      }
+    } catch (err) {
+      console.error("[CSVImport] Drop handler error:", err);
+      setResult({ created: 0, errors: ["Failed to process dropped file."] });
     }
   };
 
@@ -44,10 +63,15 @@ export function CSVImport() {
 
   const handlePreview = () => {
     if (!csv.trim()) return;
-    const lines = csv.trim().split("\n").map(l => l.trim()).filter(l => l);
-    const rows = lines.map(l => l.split(",").map(c => c.trim()));
-    setPreview(rows);
-    setResult(null);
+    try {
+      const lines = csv.trim().split("\n").map(l => l.trim()).filter(l => l);
+      const rows = lines.map(l => l.split(",").map(c => c.trim()));
+      setPreview(rows);
+      setResult(null);
+    } catch (err) {
+      console.error("[CSVImport] Preview parse error:", err);
+      setResult({ created: 0, errors: ["Failed to parse CSV for preview."] });
+    }
   };
 
   const handleImport = async () => {

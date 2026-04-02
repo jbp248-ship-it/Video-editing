@@ -129,7 +129,20 @@ function SkeletonRow() {
 }
 
 function BreakdownRow({ event }: { event: FlareEvent }) {
-  const rr = event.riskReward;
+  const rr = event?.riskReward ?? {
+    totalInvested: 0,
+    currentFloor: 0,
+    estimatedResale: 0,
+    projectedUpside: 0,
+    lossProbability: 0,
+  };
+  const breakdown = event?.breakdown ?? {
+    floorScore: 0,
+    listingScore: 0,
+    ageScore: 0,
+    velocityScore: 0,
+    exposureScore: 0,
+  };
 
   return (
     <tr className="border-b border-warm-100">
@@ -142,7 +155,7 @@ function BreakdownRow({ event }: { event: FlareEvent }) {
             </h4>
             <div className="space-y-2">
               {FLARE_LABELS.map(({ key, letter, label, max }) => {
-                const val = event.breakdown[key];
+                const val = breakdown[key] ?? 0;
                 const pct = (val / max) * 100;
                 return (
                   <div key={key} className="flex items-center gap-3">
@@ -256,10 +269,10 @@ export function FlareScreener() {
         return r.json();
       })
       .then((data) => {
-        setEvents(data);
+        setEvents(Array.isArray(data) ? data : []);
         setError(null);
       })
-      .catch((err) => setError(err.message))
+      .catch((err) => setError(err?.message ?? "Unknown error"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -272,38 +285,39 @@ export function FlareScreener() {
     }
   };
 
-  const sorted = [...events].sort((a, b) => {
+  const safeEvents = Array.isArray(events) ? events : [];
+  const sorted = [...safeEvents].sort((a, b) => {
     let aVal: string | number;
     let bVal: string | number;
 
     switch (sortKey) {
       case "eventName":
-        aVal = a.eventName.toLowerCase();
-        bVal = b.eventName.toLowerCase();
+        aVal = (a?.eventName ?? "").toLowerCase();
+        bVal = (b?.eventName ?? "").toLowerCase();
         break;
       case "venue":
-        aVal = a.venue.toLowerCase();
-        bVal = b.venue.toLowerCase();
+        aVal = (a?.venue ?? "").toLowerCase();
+        bVal = (b?.venue ?? "").toLowerCase();
         break;
       case "eventDate":
-        aVal = new Date(a.eventDate).getTime();
-        bVal = new Date(b.eventDate).getTime();
+        aVal = new Date(a?.eventDate ?? 0).getTime();
+        bVal = new Date(b?.eventDate ?? 0).getTime();
         break;
       case "projectedUpside":
-        aVal = a.riskReward.projectedUpside;
-        bVal = b.riskReward.projectedUpside;
+        aVal = a?.riskReward?.projectedUpside ?? 0;
+        bVal = b?.riskReward?.projectedUpside ?? 0;
         break;
       case "lossProbability":
-        aVal = a.riskReward.lossProbability;
-        bVal = b.riskReward.lossProbability;
+        aVal = a?.riskReward?.lossProbability ?? 0;
+        bVal = b?.riskReward?.lossProbability ?? 0;
         break;
       case "ticketsAvailable":
-        aVal = a.ticketsAvailable ?? -1;
-        bVal = b.ticketsAvailable ?? -1;
+        aVal = a?.ticketsAvailable ?? -1;
+        bVal = b?.ticketsAvailable ?? -1;
         break;
       default:
-        aVal = a[sortKey] as number;
-        bVal = b[sortKey] as number;
+        aVal = (a?.[sortKey] as number) ?? 0;
+        bVal = (b?.[sortKey] as number) ?? 0;
     }
 
     if (aVal < bVal) return sortDir === "asc" ? -1 : 1;
@@ -333,7 +347,7 @@ export function FlareScreener() {
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium text-warm-500">Live Ticket Screener</h2>
         <span className="text-xs text-warm-400">
-          {events.length} event{events.length !== 1 ? "s" : ""} tracked
+          {safeEvents.length} event{safeEvents.length !== 1 ? "s" : ""} tracked
         </span>
       </div>
 
@@ -377,7 +391,7 @@ export function FlareScreener() {
             </table>
           </div>
         </div>
-      ) : events.length === 0 ? (
+      ) : safeEvents.length === 0 ? (
         <div className="card text-center py-12 text-warm-500">
           No upcoming events tracked. Add events in the Inventory tab.
         </div>
@@ -401,7 +415,7 @@ export function FlareScreener() {
               </thead>
               <tbody>
                 {sorted.map((event, i) => {
-                  const sig = SIGNAL_CONFIG[event.signal];
+                  const sig = SIGNAL_CONFIG[event?.signal] ?? SIGNAL_CONFIG.YELLOW;
                   const isExpanded = expandedId === event.eventId;
 
                   return (
@@ -438,22 +452,22 @@ export function FlareScreener() {
                         </td>
                         <td
                           className={`px-4 py-3 text-right font-semibold ${
-                            event.riskReward.projectedUpside >= 0 ? "text-green-600" : "text-red-600"
+                            (event?.riskReward?.projectedUpside ?? 0) >= 0 ? "text-green-600" : "text-red-600"
                           }`}
                         >
-                          {event.riskReward.projectedUpside >= 0 ? "+" : ""}
-                          {fmt(event.riskReward.projectedUpside)}%
+                          {(event?.riskReward?.projectedUpside ?? 0) >= 0 ? "+" : ""}
+                          {fmt(event?.riskReward?.projectedUpside ?? 0)}%
                         </td>
                         <td
                           className={`px-4 py-3 text-right font-semibold ${
-                            event.riskReward.lossProbability <= 20
+                            (event?.riskReward?.lossProbability ?? 0) <= 20
                               ? "text-green-600"
-                              : event.riskReward.lossProbability <= 50
+                              : (event?.riskReward?.lossProbability ?? 0) <= 50
                               ? "text-amber-600"
                               : "text-red-600"
                           }`}
                         >
-                          {event.riskReward.lossProbability}%
+                          {event?.riskReward?.lossProbability ?? 0}%
                         </td>
                       </tr>
                       {isExpanded && (

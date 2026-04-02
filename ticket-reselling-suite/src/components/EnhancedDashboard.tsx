@@ -184,9 +184,9 @@ function SectionHeader({
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export function EnhancedDashboard({
-  snapshots,
-  inventory,
-  alerts,
+  snapshots = [],
+  inventory = [],
+  alerts = [],
   onRecordSale,
   onNavigate,
   onDismissAlerts,
@@ -208,10 +208,10 @@ export function EnhancedDashboard({
         return r.json();
       })
       .then((data) => {
-        setAnalytics(data.summary);
+        setAnalytics(data?.summary ?? null);
         setAnalyticsError(null);
       })
-      .catch((err) => setAnalyticsError(err.message))
+      .catch((err) => setAnalyticsError(err?.message ?? "Unknown error"))
       .finally(() => setAnalyticsLoading(false));
   }, []);
 
@@ -222,21 +222,24 @@ export function EnhancedDashboard({
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data: FlareEvent[]) => {
-        setFlareEvents(data);
+      .then((data) => {
+        setFlareEvents(Array.isArray(data) ? data : []);
         setFlareError(null);
       })
-      .catch((err) => setFlareError(err.message))
+      .catch((err) => setFlareError(err?.message ?? "Unknown error"))
       .finally(() => setFlareLoading(false));
   }, []);
 
-  // Derived data
-  const topFlareEvents = [...flareEvents]
-    .sort((a, b) => b.flareScore - a.flareScore)
+  // Derived data — guard against null/undefined arrays
+  const safeFlareEvents = Array.isArray(flareEvents) ? flareEvents : [];
+  const topFlareEvents = [...safeFlareEvents]
+    .sort((a, b) => (b?.flareScore ?? 0) - (a?.flareScore ?? 0))
     .slice(0, 5);
 
-  const unreadAlerts = alerts.filter((a) => !a.read).slice(0, 5);
-  const limitedInventory = inventory.slice(0, 5);
+  const safeAlerts = Array.isArray(alerts) ? alerts : [];
+  const safeInventory = Array.isArray(inventory) ? inventory : [];
+  const unreadAlerts = safeAlerts.filter((a) => !a?.read).slice(0, 5);
+  const limitedInventory = safeInventory.slice(0, 5);
 
   return (
     <div className="space-y-6" style={{ color: "#3D3929" }}>
@@ -332,7 +335,7 @@ export function EnhancedDashboard({
           ) : (
             <div className="space-y-2">
               {topFlareEvents.map((event) => {
-                const sig = SIGNAL_CONFIG[event.signal];
+                const sig = SIGNAL_CONFIG[event?.signal] ?? SIGNAL_CONFIG.YELLOW;
                 const scoreColor =
                   event.flareScore >= 70
                     ? "#16a34a"
@@ -493,9 +496,9 @@ export function EnhancedDashboard({
                   </div>
                 </div>
               ))}
-              {alerts.filter((a) => !a.read).length > 5 && (
+              {safeAlerts.filter((a) => !a?.read).length > 5 && (
                 <div className="text-xs text-center pt-1" style={{ color: "#A89F91" }}>
-                  +{alerts.filter((a) => !a.read).length - 5} more alerts
+                  +{safeAlerts.filter((a) => !a?.read).length - 5} more alerts
                 </div>
               )}
             </div>

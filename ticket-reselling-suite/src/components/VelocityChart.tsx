@@ -37,8 +37,8 @@ export function VelocityChart() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then(setData)
-      .catch((err) => setError(err.message))
+      .then((d) => setData(Array.isArray(d) ? d : []))
+      .catch((err) => setError(err?.message ?? "Unknown error"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -69,7 +69,7 @@ export function VelocityChart() {
     );
   }
 
-  const maxVelocity = Math.max(...data.map((d) => d.velocityPerDay), 1);
+  const maxVelocity = Math.max(...data.map((d) => d?.velocityPerDay ?? 0), 1);
 
   return (
     <div className="space-y-3">
@@ -82,7 +82,7 @@ export function VelocityChart() {
         <div className="card p-3">
           <div className="text-xs text-warm-500">Avg Sell Velocity</div>
           <div className="text-2xl font-bold" style={{ color: "#D97706" }}>
-            {(data.reduce((s, d) => s + d.velocityPerDay, 0) / data.length).toFixed(1)}/day
+            {(data.length > 0 ? data.reduce((s, d) => s + (d?.velocityPerDay ?? 0), 0) / data.length : 0).toFixed(1)}/day
           </div>
         </div>
         <div className="card p-3">
@@ -158,13 +158,13 @@ export function VelocityChart() {
             </button>
 
             {/* Expanded: mini timeline chart */}
-            {isExpanded && event.timeline.length > 0 && (
+            {isExpanded && Array.isArray(event?.timeline) && event.timeline.length > 0 && (
               <div className="border-t border-warm-100 p-4 bg-warm-50/50">
                 <div className="text-xs text-warm-500 mb-2">Listing count over time</div>
                 <div className="flex items-end gap-px h-24">
                   {event.timeline.map((point, i) => {
-                    const maxListings = Math.max(...event.timeline.map((t) => t.listings), 1);
-                    const h = (point.listings / maxListings) * 80;
+                    const maxListings = Math.max(...event.timeline.map((t) => t?.listings ?? 0), 1);
+                    const h = ((point?.listings ?? 0) / maxListings) * 80;
                     return (
                       <div
                         key={i}
@@ -174,14 +174,14 @@ export function VelocityChart() {
                           backgroundColor: "#D97706",
                           opacity: 0.3 + (i / event.timeline.length) * 0.7,
                         }}
-                        title={`${new Date(point.date).toLocaleDateString()}: ${point.listings} listings, Floor: ${fmt(point.getInPrice)}`}
+                        title={`${new Date(point?.date ?? 0).toLocaleDateString()}: ${point?.listings ?? 0} listings, Floor: ${fmt(point?.getInPrice ?? 0)}`}
                       />
                     );
                   })}
                 </div>
                 <div className="flex justify-between text-[10px] text-warm-400 mt-1">
-                  <span>{new Date(event.timeline[0].date).toLocaleDateString()}</span>
-                  <span>{new Date(event.timeline[event.timeline.length - 1].date).toLocaleDateString()}</span>
+                  <span>{new Date(event.timeline[0]?.date ?? 0).toLocaleDateString()}</span>
+                  <span>{new Date(event.timeline[event.timeline.length - 1]?.date ?? 0).toLocaleDateString()}</span>
                 </div>
               </div>
             )}

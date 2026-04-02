@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { TicketBrowser } from "./TicketBrowser";
 import { MarketScanner } from "./MarketScanner";
 import { VelocityChart } from "./VelocityChart";
@@ -12,6 +13,29 @@ const SUB_TABS = [
   { id: "demand", label: "Supply & Demand" },
   { id: "flare", label: "FLARE Screener" },
 ];
+
+function TabErrorFallback({ tabName }: { tabName: string }) {
+  return (
+    <div
+      style={{
+        padding: "24px",
+        textAlign: "center",
+        backgroundColor: "#FEF2F2",
+        border: "1px solid #FECACA",
+        borderRadius: "8px",
+        color: "#991b1b",
+        fontSize: "14px",
+      }}
+    >
+      <p style={{ fontWeight: 600, marginBottom: "4px" }}>
+        {tabName} failed to load
+      </p>
+      <p style={{ color: "#78716C", fontSize: "13px" }}>
+        Try refreshing the page. If the problem persists, check the console for details.
+      </p>
+    </div>
+  );
+}
 
 export function MarketIntel() {
   const [subTab, setSubTab] = useState("browse");
@@ -35,11 +59,27 @@ export function MarketIntel() {
         ))}
       </div>
 
-      {/* Content */}
-      {subTab === "browse" && <TicketBrowser />}
-      {subTab === "scan" && <MarketScanner />}
-      {subTab === "demand" && <VelocityChart />}
-      {subTab === "flare" && <FlareScreener />}
+      {/* Content — each sub-component wrapped in ErrorBoundary */}
+      {subTab === "browse" && (
+        <ErrorBoundary fallback={<TabErrorFallback tabName="Ticket Browser" />}>
+          <TicketBrowser />
+        </ErrorBoundary>
+      )}
+      {subTab === "scan" && (
+        <ErrorBoundary fallback={<TabErrorFallback tabName="Market Scanner" />}>
+          <MarketScanner />
+        </ErrorBoundary>
+      )}
+      {subTab === "demand" && (
+        <ErrorBoundary fallback={<TabErrorFallback tabName="Supply & Demand" />}>
+          <VelocityChart />
+        </ErrorBoundary>
+      )}
+      {subTab === "flare" && (
+        <ErrorBoundary fallback={<TabErrorFallback tabName="FLARE Screener" />}>
+          <FlareScreener />
+        </ErrorBoundary>
+      )}
     </div>
   );
 }
