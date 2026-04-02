@@ -699,6 +699,18 @@ def preload_models():
     return jsonify({"status": "preloading"})
 
 
+# ── Download Route ─────────────────────────────────────────────────────
+
+
+@app.route("/download-app")
+def download_app():
+    """Serve the latest TicketOps build for download."""
+    zip_path = Path(__file__).parent / "TicketOps-linux-x64.zip"
+    if not zip_path.exists():
+        return jsonify({"error": "Build not found. Run: pyinstaller ticketops.spec --noconfirm"}), 404
+    return send_file(str(zip_path), as_attachment=True, download_name="TicketOps-linux-x64.zip")
+
+
 # ── Update Routes ────────────────────────────────────────────────────────
 
 
