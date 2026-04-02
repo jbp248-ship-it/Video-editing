@@ -122,16 +122,16 @@ export function InventoryTable({ items, onRecordSale }: InventoryTableProps) {
                   <td className="px-4 py-3 font-medium max-w-[200px]">
                     <span
                       className="block truncate text-warm-900"
-                      title={item.event.name}
+                      title={item.event?.name ?? "Unknown"}
                     >
-                      {item.event.name}
+                      {item.event?.name ?? "Unknown"}
                     </span>
-                    <span className="block text-xs text-warm-400 truncate mt-0.5" title={item.event.venue}>
-                      {item.event.venue}
+                    <span className="block text-xs text-warm-400 truncate mt-0.5" title={item.event?.venue ?? ""}>
+                      {item.event?.venue ?? ""}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-warm-500 whitespace-nowrap text-xs">
-                    {formatDate(item.event.eventDate)}
+                    {item.event?.eventDate ? formatDate(item.event.eventDate) : "\u2014"}
                   </td>
                   <td className="px-4 py-3 text-warm-700 whitespace-nowrap">
                     <span className="font-medium">{item.section}</span>

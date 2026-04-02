@@ -134,7 +134,7 @@ export function CSVImport() {
             setPreview(null);
             setResult(null);
           }}
-          placeholder="Paste CSV data here, or drag &amp; drop a .csv file..."
+          placeholder="Paste CSV data here, or drag & drop a .csv file..."
           rows={8}
           style={{
             width: "100%",

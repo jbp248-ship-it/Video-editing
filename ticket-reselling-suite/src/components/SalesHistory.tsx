@@ -62,7 +62,7 @@ export function SalesHistory() {
         return r.json();
       })
       .then((data) => {
-        setSales(data);
+        setSales(Array.isArray(data) ? data : []);
         setError(null);
       })
       .catch((err) => setError(err.message))
@@ -186,14 +186,14 @@ export function SalesHistory() {
                     >
                       <td className="px-4 py-3">
                         <div className="font-medium text-warm-900 truncate max-w-[200px]">
-                          {sale.inventory.event.name}
+                          {sale.inventory?.event?.name ?? "Unknown"}
                         </div>
                         <div className="text-xs text-warm-400">
-                          {fmtDate(sale.inventory.event.date)}
+                          {sale.inventory?.event?.date ? fmtDate(sale.inventory.event.date) : "\u2014"}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-warm-600 truncate max-w-[160px]">
-                        {sale.inventory.event.venue}
+                        {sale.inventory?.event?.venue ?? ""}
                       </td>
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">
