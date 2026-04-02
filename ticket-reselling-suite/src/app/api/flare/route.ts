@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       orderBy: { eventDate: "asc" },
     });
 
-    const scores = events.map((event) => {
+    const scores = events.map((event: any) => {
       const snaps = event.marketSnapshots;
       const inv = event.inventory;
 
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
       }
 
       // E: Exposure risk (0-15) — less capital at risk = higher score
-      const totalInvested = inv.reduce((s, i) => s + i.purchasePrice * i.quantity, 0);
+      const totalInvested = inv.reduce((s: number, i: any) => s + i.purchasePrice * i.quantity, 0);
       const exposureScore = totalInvested > 5000 ? 3 : totalInvested > 2000 ? 7 : totalInvested > 500 ? 10 : 15;
 
       const flareScore = Math.round(floorScore + listingScore + ageScore + velocityScore + exposureScore);
@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
 
       // Risk/reward calculation
       const avgPurchasePrice = inv.length > 0
-        ? inv.reduce((s, i) => s + i.purchasePrice, 0) / inv.length
+        ? inv.reduce((s: number, i: any) => s + i.purchasePrice, 0) / inv.length
         : 0;
       const currentFloor = snaps[0]?.getInPrice ?? 0;
       const estimatedResale = currentFloor * 0.85; // conservative: 85% of floor after fees
@@ -109,12 +109,12 @@ export async function GET(req: NextRequest) {
           projectedUpside: Math.round(projectedUpside * 100) / 100,
           lossProbability,
         },
-        ticketsHeld: inv.filter(i => i.status === "IN_HAND" || i.status === "LISTED").reduce((s, i) => s + i.quantity, 0),
+        ticketsHeld: inv.filter((i: any) => i.status === "IN_HAND" || i.status === "LISTED").reduce((s: number, i: any) => s + i.quantity, 0),
         ticketsAvailable: snaps[0]?.totalListings ?? null,
       };
     });
 
-    return NextResponse.json(scores.sort((a, b) => b.flareScore - a.flareScore));
+    return NextResponse.json(scores.sort((a: any, b: any) => b.flareScore - a.flareScore));
   } catch (err) {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

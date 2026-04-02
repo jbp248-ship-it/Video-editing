@@ -27,18 +27,18 @@ export async function GET(req: NextRequest) {
 
     // ── Capital Summary ──
     const totalCapitalInvested = allInventory.reduce(
-      (s, i) => s + i.purchasePrice * i.quantity, 0
+      (s: number, i: any) => s + i.purchasePrice * i.quantity, 0
     );
     const activeInventory = allInventory.filter(
-      (i) => i.status === "IN_HAND" || i.status === "LISTED"
+      (i: any) => i.status === "IN_HAND" || i.status === "LISTED"
     );
     const activeInventoryValue = activeInventory.reduce(
-      (s, i) => s + i.purchasePrice * i.quantity, 0
+      (s: number, i: any) => s + i.purchasePrice * i.quantity, 0
     );
     // Estimate current market value from floor prices
     let estimatedMarketValue = 0;
     for (const inv of activeInventory) {
-      const event = events.find((e) => e.id === inv.eventId);
+      const event = events.find((e: any) => e.id === inv.eventId);
       const floor = event?.marketSnapshots[0]?.getInPrice;
       if (floor && floor > 0) {
         estimatedMarketValue += floor * inv.quantity;
@@ -47,13 +47,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const totalRevenue = allSales.reduce((s, sale) => s + sale.netRevenue, 0);
-    const totalProfit = allSales.reduce((s, sale) => s + sale.netProfit, 0);
+    const totalRevenue = allSales.reduce((s: number, sale: any) => s + sale.netRevenue, 0);
+    const totalProfit = allSales.reduce((s: number, sale: any) => s + sale.netProfit, 0);
     const totalFees = allSales.reduce(
-      (s, sale) => s + sale.platformFee + sale.processingFee, 0
+      (s: number, sale: any) => s + sale.platformFee + sale.processingFee, 0
     );
     const soldCapital = allSales.reduce(
-      (s, sale) => s + sale.inventory.purchasePrice * sale.quantitySold, 0
+      (s: number, sale: any) => s + sale.inventory.purchasePrice * sale.quantitySold, 0
     );
     const allTimeROI = soldCapital > 0
       ? (totalProfit / soldCapital) * 100
@@ -133,7 +133,7 @@ export async function GET(req: NextRequest) {
         totalFees: round(totalFees),
         allTimeROI: round(allTimeROI),
         totalSales: allSales.length,
-        activeTickets: activeInventory.reduce((s, i) => s + i.quantity, 0),
+        activeTickets: activeInventory.reduce((s: number, i: any) => s + i.quantity, 0),
       },
       platformBreakdown,
       monthlyTrends,
