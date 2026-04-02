@@ -13,6 +13,7 @@ let mainWindow = null;
 let nextProcess = null;
 let ticketBrowserView = null;
 let sidebarWidth = 224; // Synced from renderer
+let splashTimeout = null;
 
 function killProcessTree(proc) {
   if (!proc || proc.killed) return;
@@ -22,6 +23,27 @@ function killProcessTree(proc) {
     proc.kill();
   }
 }
+
+function cleanupAndQuit(reason) {
+  console.error("Fatal cleanup:", reason);
+  killProcessTree(nextProcess);
+  nextProcess = null;
+  if (splashTimeout) { clearTimeout(splashTimeout); splashTimeout = null; }
+  app.quit();
+}
+
+// ─── Crash guards: kill zombie Next.js on unhandled errors ────────────
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught exception:", err);
+  dialog.showErrorBox("TicketOps — Unexpected Error", `An unexpected error occurred:\n\n${err.message}`);
+  cleanupAndQuit("uncaughtException");
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection:", reason);
+  dialog.showErrorBox("TicketOps — Unexpected Error", `An unhandled promise rejection occurred:\n\n${String(reason)}`);
+  cleanupAndQuit("unhandledRejection");
+});
 
 function getProjectRoot() {
   return isDev ? path.join(__dirname, "..") : path.join(process.resourcesPath, "app");
@@ -40,14 +62,27 @@ function getEnv() {
   };
 }
 
-function initDatabase() {
+async function initDatabase() {
   try {
-    execSync("npx prisma db push --skip-generate", {
-      cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe", timeout: 30000,
+    await new Promise((resolve, reject) => {
+      const proc = spawn("npx", ["prisma", "db", "push", "--skip-generate"], {
+        cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe", timeout: 30000,
+      });
+      let stderr = "";
+      proc.stderr.on("data", (d) => { stderr += d.toString(); });
+      proc.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(stderr || `prisma db push exited with code ${code}`));
+      });
+      proc.on("error", (err) => reject(err));
     });
     console.log("Database initialized at:", getDatabasePath());
   } catch (err) {
     console.error("Database init failed:", err.message);
+    dialog.showErrorBox(
+      "TicketOps — Database Error",
+      `Failed to initialize the database:\n\n${err.message}\n\nThe app will continue but may not work correctly.`
+    );
   }
 }
 
@@ -61,22 +96,62 @@ function isPortFree(port) {
 }
 
 function startNextServer() {
-  const cmd = isDev ? "dev" : "start";
-  nextProcess = spawn("npx", ["next", cmd, "-p", String(PORT)], {
-    cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe",
-  });
-  nextProcess.stdout.on("data", (d) => console.log(`[next] ${d.toString().trim()}`));
-  nextProcess.stderr.on("data", (d) => console.error(`[next] ${d.toString().trim()}`));
-  nextProcess.on("close", (code) => {
-    console.log(`Next.js exited with code ${code}`);
-    // If Next.js crashes during startup, retry once
-    if (code !== 0 && !nextProcess._retried) {
-      console.log("Retrying Next.js startup...");
-      nextProcess._retried = true;
-      setTimeout(() => startNextServer(), 2000);
-      return;
-    }
-    if (mainWindow && !mainWindow.isDestroyed()) app.quit();
+  return new Promise((resolve, reject) => {
+    // Check port right before spawning to minimize race window
+    const portCheck = net.createServer();
+    portCheck.once("error", () => {
+      reject(new Error(`Port ${PORT} is already in use. Close any other TicketOps instance and try again.`));
+    });
+    portCheck.once("listening", () => {
+      portCheck.close(() => {
+        // Port is free — start Next.js immediately to minimize race window
+        const cmd = isDev ? "dev" : "start";
+        let stderrOutput = "";
+
+        nextProcess = spawn("npx", ["next", cmd, "-p", String(PORT)], {
+          cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe",
+        });
+        nextProcess.stdout.on("data", (d) => console.log(`[next] ${d.toString().trim()}`));
+        nextProcess.stderr.on("data", (d) => {
+          const text = d.toString().trim();
+          stderrOutput += text + "\n";
+          console.error(`[next] ${text}`);
+        });
+        nextProcess.on("close", (code) => {
+          console.log(`Next.js exited with code ${code}`);
+          // If Next.js crashes during startup, retry once
+          if (code !== 0 && !nextProcess._retried) {
+            console.log("Retrying Next.js startup...");
+            nextProcess._retried = true;
+            setTimeout(() => {
+              startNextServer().then(resolve).catch(reject);
+            }, 2000);
+            return;
+          }
+          if (code !== 0) {
+            const errMsg = stderrOutput.trim() || `Next.js exited with code ${code}`;
+            dialog.showErrorBox(
+              "TicketOps — Next.js Failed",
+              `Next.js dev server crashed:\n\n${errMsg.slice(0, 1000)}`
+            );
+            app.quit();
+            return;
+          }
+          if (mainWindow && !mainWindow.isDestroyed()) app.quit();
+        });
+        nextProcess.on("error", (err) => {
+          dialog.showErrorBox(
+            "TicketOps — Failed to Start",
+            `Could not start Next.js:\n\n${err.message}`
+          );
+          reject(err);
+        });
+
+        // Resolve immediately — the server will be polled by waitForServer
+        resolve();
+      });
+    });
+    portCheck.listen(PORT, "127.0.0.1");
   });
 }
 
@@ -540,23 +615,35 @@ app.whenReady().then(async () => {
   // Show window immediately with splash — user sees the app right away
   createWindow();
 
-  // Check port availability before starting
-  const portFree = await isPortFree(PORT);
-  if (!portFree) {
+  // Splash screen timeout — 60 seconds max
+  splashTimeout = setTimeout(() => {
     dialog.showErrorBox(
-      "TicketOps — Port In Use",
-      `Port ${PORT} is already in use. Close any other TicketOps window and try again.`
+      "TicketOps — Startup Timeout",
+      "TicketOps took too long to start (60 seconds).\n\nPossible causes:\n- Next.js failed to compile\n- Database migration is stuck\n- Another process is blocking port " + PORT + "\n\nThe app will now quit."
+    );
+    cleanupAndQuit("splash screen timeout after 60s");
+  }, 60000);
+
+  // Boot everything in the background
+  await initDatabase();
+
+  try {
+    await startNextServer();
+  } catch (err) {
+    if (splashTimeout) { clearTimeout(splashTimeout); splashTimeout = null; }
+    dialog.showErrorBox(
+      "TicketOps — Failed to Start",
+      `Could not start the Next.js server:\n\n${err.message}`
     );
     app.quit();
     return;
   }
 
-  // Boot everything in the background
-  initDatabase();
-  startNextServer();
-
   try {
     await waitForServer();
+    // Clear splash timeout — startup succeeded
+    if (splashTimeout) { clearTimeout(splashTimeout); splashTimeout = null; }
+
     // Swap splash → real app once Next.js is ready
     navigateToApp();
 
@@ -565,8 +652,13 @@ app.whenReady().then(async () => {
       if (ticketBrowserView) closeBrowserView();
     });
   } catch (err) {
+    if (splashTimeout) { clearTimeout(splashTimeout); splashTimeout = null; }
     console.error("Failed to start:", err.message);
-    app.quit();
+    dialog.showErrorBox(
+      "TicketOps — Next.js Failed to Start",
+      "Next.js failed to start. Check that no other TicketOps is running.\n\nDetails: " + err.message
+    );
+    cleanupAndQuit("waitForServer failed");
   }
 });
 
@@ -577,6 +669,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  if (splashTimeout) { clearTimeout(splashTimeout); splashTimeout = null; }
   killProcessTree(nextProcess);
   nextProcess = null;
 });
