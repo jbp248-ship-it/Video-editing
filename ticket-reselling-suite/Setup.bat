@@ -1,7 +1,7 @@
 @echo off
-title TicketOps Setup
+title TicketReselling Setup
 echo ========================================
-echo   TicketOps - First Time Setup
+echo   TicketReselling - First Time Setup
 echo ========================================
 echo.
 cd /d "%~dp0"
@@ -17,7 +17,7 @@ call npx prisma db push --accept-data-loss
 echo.
 echo ========================================
 echo   Setup complete!
-echo   Double-click TicketOps.bat to launch.
+echo   Double-click TicketReselling.bat to launch.
 echo ========================================
 echo.
 pause

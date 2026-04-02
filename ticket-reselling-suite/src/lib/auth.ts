@@ -27,7 +27,7 @@ export function requireAuth(
   if (!secret) {
     if (!warnedNoSecret) {
       console.warn(
-        "[TicketOps] WARNING: API_SECRET is not set. All API endpoints are unauthenticated. " +
+        "[TicketReselling] WARNING: API_SECRET is not set. All API endpoints are unauthenticated. " +
           "Set API_SECRET in .env if you expose this app beyond localhost."
       );
       warnedNoSecret = true;

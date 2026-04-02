@@ -42,7 +42,7 @@
   },
   "build": {
     "appId": "com.ticketops.desktop",
-    "productName": "TicketOps",
+    "productName": "TicketReselling",
     "directories": {
       "output": "dist-electron"
     },

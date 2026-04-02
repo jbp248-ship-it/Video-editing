@@ -237,7 +237,7 @@ export function Sidebar({ activeTab, onTabChange, alertCount }: SidebarProps) {
         {!collapsed && (
           <div className="px-4 py-3">
             <p className="text-[10px] font-medium" style={{ color: "#4A4539" }}>
-              TicketOps v1.0
+              TicketReselling v1.0
             </p>
           </div>
         )}

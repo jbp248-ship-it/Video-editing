@@ -26,7 +26,7 @@ export class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error("[TicketOps] Unhandled error:", error, info.componentStack);
+    console.error("[TicketReselling] Unhandled error:", error, info.componentStack);
   }
 
   render() {

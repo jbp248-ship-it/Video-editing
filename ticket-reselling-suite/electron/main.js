@@ -35,13 +35,13 @@ function cleanupAndQuit(reason) {
 // ─── Crash guards: kill zombie Next.js on unhandled errors ────────────
 process.on("uncaughtException", (err) => {
   console.error("Uncaught exception:", err);
-  dialog.showErrorBox("TicketOps — Unexpected Error", `An unexpected error occurred:\n\n${err.message}`);
+  dialog.showErrorBox("TicketReselling — Unexpected Error", `An unexpected error occurred:\n\n${err.message}`);
   cleanupAndQuit("uncaughtException");
 });
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled rejection:", reason);
-  dialog.showErrorBox("TicketOps — Unexpected Error", `An unhandled promise rejection occurred:\n\n${String(reason)}`);
+  dialog.showErrorBox("TicketReselling — Unexpected Error", `An unhandled promise rejection occurred:\n\n${String(reason)}`);
   cleanupAndQuit("unhandledRejection");
 });
 
@@ -109,7 +109,7 @@ function startNextServer() {
     // Check port right before spawning to minimize race window
     const portCheck = net.createServer();
     portCheck.once("error", () => {
-      reject(new Error(`Port ${PORT} is already in use. Close any other TicketOps instance and try again.`));
+      reject(new Error(`Port ${PORT} is already in use. Close any other TicketReselling instance and try again.`));
     });
     portCheck.once("listening", () => {
       portCheck.close(() => {
@@ -140,7 +140,7 @@ function startNextServer() {
           if (code !== 0) {
             const errMsg = stderrOutput.trim() || `Next.js exited with code ${code}`;
             dialog.showErrorBox(
-              "TicketOps — Next.js Failed",
+              "TicketReselling — Next.js Failed",
               `Next.js dev server crashed:\n\n${errMsg.slice(0, 1000)}`
             );
             app.quit();
@@ -150,7 +150,7 @@ function startNextServer() {
         });
         nextProcess.on("error", (err) => {
           dialog.showErrorBox(
-            "TicketOps — Failed to Start",
+            "TicketReselling — Failed to Start",
             `Could not start Next.js:\n\n${err.message}`
           );
           reject(err);
@@ -190,7 +190,7 @@ function waitForServer(retries = 240) {
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400, height: 900, minWidth: 1024, minHeight: 700,
-    title: "TicketOps", backgroundColor: "#FAF9F6",
+    title: "TicketReselling", backgroundColor: "#FAF9F6",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -815,7 +815,7 @@ app.on("second-instance", () => {
 });
 
 app.whenReady().then(async () => {
-  console.log("Starting TicketOps...");
+  console.log("Starting TicketReselling...");
   console.log("Database:", getDatabasePath());
 
   // Show window immediately with splash — user sees the app right away
@@ -824,8 +824,8 @@ app.whenReady().then(async () => {
   // Splash screen timeout — 60 seconds max
   splashTimeout = setTimeout(() => {
     dialog.showErrorBox(
-      "TicketOps — Startup Timeout",
-      "TicketOps took too long to start (60 seconds).\n\nPossible causes:\n- Next.js failed to compile\n- Database migration is stuck\n- Another process is blocking port " + PORT + "\n\nThe app will now quit."
+      "TicketReselling — Startup Timeout",
+      "TicketReselling took too long to start (60 seconds).\n\nPossible causes:\n- Next.js failed to compile\n- Database migration is stuck\n- Another process is blocking port " + PORT + "\n\nThe app will now quit."
     );
     cleanupAndQuit("splash screen timeout after 60s");
   }, 60000);
@@ -838,7 +838,7 @@ app.whenReady().then(async () => {
   } catch (err) {
     if (splashTimeout) { clearTimeout(splashTimeout); splashTimeout = null; }
     dialog.showErrorBox(
-      "TicketOps — Failed to Start",
+      "TicketReselling — Failed to Start",
       `Could not start the Next.js server:\n\n${err.message}`
     );
     app.quit();
@@ -861,8 +861,8 @@ app.whenReady().then(async () => {
     if (splashTimeout) { clearTimeout(splashTimeout); splashTimeout = null; }
     console.error("Failed to start:", err.message);
     dialog.showErrorBox(
-      "TicketOps — Next.js Failed to Start",
-      "Next.js failed to start. Check that no other TicketOps is running.\n\nDetails: " + err.message
+      "TicketReselling — Next.js Failed to Start",
+      "Next.js failed to start. Check that no other TicketReselling is running.\n\nDetails: " + err.message
     );
     cleanupAndQuit("waitForServer failed");
   }

@@ -3,7 +3,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "TicketOps — Reselling Dashboard",
+  title: "TicketReselling — Reselling Dashboard",
   description: "Professional ticket reselling management suite",
 };
 
