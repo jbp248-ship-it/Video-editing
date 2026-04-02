@@ -1,5 +1,5 @@
 """
-TikTok Video Clipper — Web App
+TicketOps — Web App
 
 A mobile-friendly web interface for the video clipper pipeline.
 Upload a video, pick your settings, and download viral clips.
@@ -89,7 +89,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>TikTok Video Clipper</title>
+    <title>TicketOps</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -391,7 +391,7 @@ HTML_TEMPLATE = """
 
     <!-- HEADER -->
     <div class="logo">
-        <h1>TikTok Video Clipper</h1>
+        <h1>TicketOps</h1>
         <p>Upload a long video, get viral clips back</p>
         <a href="/notes" style="display:inline-block;margin-top:10px;padding:8px 20px;background:#111;border:1px solid #333;border-radius:8px;color:#25f4ee;font-size:13px;text-decoration:none;">My Notes &amp; Study Tools</a>
     </div>
@@ -1141,7 +1141,7 @@ if __name__ == "__main__":
     import argparse
     import webbrowser
 
-    parser = argparse.ArgumentParser(description="TikTok Video Clipper web server")
+    parser = argparse.ArgumentParser(description="TicketOps web server")
     parser.add_argument("--port", type=int,
                         default=int(os.environ.get("PORT", os.environ.get("FLASK_PORT", 5000))),
                         help="Port to listen on (default: 5000, or PORT/FLASK_PORT env var)")
@@ -1154,7 +1154,7 @@ if __name__ == "__main__":
 
     print()
     print("=" * 50)
-    print("  TikTok Video Clipper")
+    print("  TicketOps")
     print("=" * 50)
     print()
     print("  Open this on your phone or computer:")

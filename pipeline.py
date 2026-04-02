@@ -201,7 +201,7 @@ def process_batch(input_dir: str, config: PipelineConfig) -> dict[str, list[str]
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="TikTok Video Clipper — turn long videos into viral clips",
+        description="TicketOps — turn long videos into viral clips",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

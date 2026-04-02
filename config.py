@@ -1,5 +1,5 @@
 """
-Configuration for the TikTok Video Clipper pipeline.
+Configuration for the TicketOps pipeline.
 All tunable parameters live here so you can adjust behavior without touching code.
 """
 
