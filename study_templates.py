@@ -713,7 +713,7 @@ function showQuizResults() {
             <div class="quiz-score-breakdown">
                 ${pct >= 80 ? 'Excellent work!' : pct >= 60 ? 'Good effort — review the missed ones.' : 'Keep studying — you\'ll get there!'}
             </div>
-            <button onclick="renderQuestion(0)" style="margin-top:24px;padding:12px 28px;background:#25f4ee;border:none;border-radius:10px;color:#000;font-size:14px;font-weight:700;cursor:pointer;">
+            <button onclick="_score=0;_answered={};_qIdx=0;renderQuestion(0);" style="margin-top:24px;padding:12px 28px;background:#25f4ee;border:none;border-radius:10px;color:#000;font-size:14px;font-weight:700;cursor:pointer;">
                 Retake Quiz
             </button>
         </div>
@@ -743,8 +743,7 @@ async function compileNotes() {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
 
-        document.getElementById('compiled-result').innerHTML = renderMarkdown(data.compiled).replace('<div class="md-content">', '').replace('</div>', '');
-        document.getElementById('compiled-result').className = '';
+        document.getElementById('compiled-result').innerHTML = renderMarkdown(data.compiled);
         document.getElementById('content-compile').style.display = 'block';
     } catch(e) {
         alert('Compile error: ' + e.message);
@@ -754,10 +753,9 @@ async function compileNotes() {
     }
 }
 
-function copyCompiled() {
+function copyCompiled(btn) {
     const text = document.getElementById('compiled-result').innerText;
     navigator.clipboard.writeText(text).then(() => {
-        const btn = event.target;
         btn.textContent = 'Copied!';
         setTimeout(() => btn.textContent = 'Copy', 2000);
     });
