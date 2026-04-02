@@ -76,6 +76,36 @@ function computeStats(listings: CapturedData["listings"]) {
   };
 }
 
+// Shared icon button style for the browser toolbar
+function ToolbarIconBtn({
+  onClick,
+  title,
+  children,
+}: {
+  onClick: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="flex h-8 w-8 items-center justify-center rounded-md transition-all duration-100"
+      style={{ color: "#A89F91" }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.backgroundColor = "rgba(245,240,235,0.12)";
+        e.currentTarget.style.color = "#F5F0EB";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.backgroundColor = "transparent";
+        e.currentTarget.style.color = "#A89F91";
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function TicketBrowser() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -228,15 +258,30 @@ export function TicketBrowser() {
 
   if (!api) {
     return (
-      <div className="card text-center py-16 space-y-4">
-        <p className="text-2xl">🖥️</p>
-        <p className="font-medium" style={{ color: "#2D2B28" }}>
-          Built-in Browser requires the Desktop App
-        </p>
-        <p className="text-sm" style={{ color: "#8C8680" }}>
+      <div className="empty-state py-20">
+        <div
+          className="flex h-14 w-14 items-center justify-center rounded-2xl"
+          style={{ backgroundColor: "rgba(217,119,6,0.08)" }}
+        >
+          <svg
+            className="h-7 w-7"
+            style={{ color: "#D97706" }}
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path fillRule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2h-2.22l.123.489.804.804A1 1 0 0113 18H7a1 1 0 01-.707-1.707l.804-.804L7.22 15H5a2 2 0 01-2-2V5zm5.771 7H5V5h10v7H8.771z" clipRule="evenodd" />
+          </svg>
+        </div>
+        <p className="empty-state-title">Built-in Browser requires the Desktop App</p>
+        <p className="empty-state-body">
           Run with{" "}
-          <code style={{ color: "#D97706" }}>npm run electron:dev</code> to
-          enable.
+          <code
+            className="rounded px-1.5 py-0.5 text-xs font-mono"
+            style={{ backgroundColor: "rgba(217,119,6,0.1)", color: "#D97706" }}
+          >
+            npm run electron:dev
+          </code>{" "}
+          to enable the embedded browser and live data capture.
         </p>
       </div>
     );
@@ -248,34 +293,52 @@ export function TicketBrowser() {
   if (!isOpen) {
     return (
       <div className="space-y-6">
-        <form onSubmit={handleSubmit} className="flex gap-3">
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="Paste a ticket URL or search..."
-            className="flex-1 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2"
-            style={{
-              border: "1px solid #E8E2DB",
-              backgroundColor: "#FFFFFF",
-              color: "#2D2B28",
-            }}
-          />
-          <button type="submit" className="btn-primary px-6 rounded-xl">
+        {/* URL bar */}
+        <form onSubmit={handleSubmit} className="flex gap-2">
+          <div className="relative flex-1">
+            <div
+              className="pointer-events-none absolute inset-y-0 left-3.5 flex items-center"
+              style={{ color: "#A89F91" }}
+            >
+              <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="Paste a ticket URL or search…"
+              className="w-full rounded-xl py-3 pl-10 pr-4 text-sm transition-all duration-150"
+              style={{
+                border: "1px solid #E8E2DB",
+                backgroundColor: "#FFFFFF",
+                color: "#2D2B28",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = "#D97706";
+                e.currentTarget.style.boxShadow = "0 0 0 3px rgba(217,119,6,0.12)";
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = "#E8E2DB";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            />
+          </div>
+          <button type="submit" className="btn-primary px-5 rounded-xl">
             Go
           </button>
         </form>
 
+        {/* Quick links */}
         <div>
-          <h3 className="text-sm font-medium mb-3" style={{ color: "#8C8680" }}>
-            Browse Ticket Sites
-          </h3>
+          <h3 className="section-label block mb-3">Browse Ticket Sites</h3>
           <div className="grid grid-cols-5 gap-3">
             {QUICK_LINKS.map((link) => (
               <button
                 key={link.label}
                 onClick={() => navigate(link.url)}
-                className="rounded-xl px-4 py-8 text-center text-white font-semibold text-lg transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98]"
+                className="rounded-xl px-4 py-8 text-center font-semibold text-base text-white transition-all duration-150 hover:scale-[1.03] hover:shadow-lg active:scale-[0.97]"
                 style={{ backgroundColor: link.color }}
               >
                 {link.label}
@@ -284,37 +347,30 @@ export function TicketBrowser() {
           </div>
         </div>
 
+        {/* Recent scans */}
         {history.length > 0 && (
           <div>
-            <h3
-              className="text-sm font-medium mb-3"
-              style={{ color: "#8C8680" }}
-            >
-              Recent Scans
-            </h3>
+            <h3 className="section-label block mb-3">Recent Scans</h3>
             <div className="space-y-2">
               {history.map((h, i) => (
                 <div
                   key={i}
-                  className="card flex items-center justify-between cursor-pointer transition-all hover:shadow-md"
+                  className="card flex items-center justify-between gap-4 cursor-pointer transition-all duration-150 hover:shadow-warm-md"
                   onClick={() => navigate(h.url)}
                 >
                   <div className="min-w-0">
-                    <p
-                      className="text-sm font-medium truncate"
-                      style={{ color: "#2D2B28" }}
-                    >
+                    <p className="text-sm font-medium truncate text-warm-900">
                       {h.eventName}
                     </p>
-                    <p className="text-xs" style={{ color: "#8C8680" }}>
-                      {h.platform} · {h.total} listings · {h.time}
+                    <p className="text-xs text-warm-400 mt-0.5">
+                      {h.platform} &middot; {h.total.toLocaleString()} listings &middot; {h.time}
                     </p>
                   </div>
-                  <div className="text-right shrink-0 ml-4">
-                    <p className="font-semibold" style={{ color: "#059669" }}>
+                  <div className="text-right shrink-0">
+                    <p className="font-semibold text-sm" style={{ color: "#059669" }}>
                       {fmt(h.getIn)}
                     </p>
-                    <p className="text-xs" style={{ color: "#8C8680" }}>
+                    <p className="text-xs text-warm-400">
                       med {fmt(h.median)}
                     </p>
                   </div>
@@ -325,15 +381,11 @@ export function TicketBrowser() {
         )}
 
         {history.length === 0 && (
-          <div
-            className="card text-center py-12"
-            style={{ color: "#8C8680" }}
-          >
-            <p className="text-lg mb-2">Browse any ticket site above</p>
-            <p className="text-sm">
-              TicketOps captures pricing data in real-time as you browse.
-              <br />
-              No extensions needed — it all happens inside this app.
+          <div className="card text-center py-14 space-y-2">
+            <p className="text-2xl mb-1">🎟️</p>
+            <p className="font-medium text-sm text-warm-700">Browse any ticket site above</p>
+            <p className="text-sm text-warm-400 max-w-sm mx-auto">
+              TicketOps captures pricing data in real-time as you browse — no extensions needed.
             </p>
           </div>
         )}
@@ -344,79 +396,92 @@ export function TicketBrowser() {
   // ─── Split-Screen ────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-[calc(100vh-112px)]">
-      {/* Browser Toolbar — always visible above BrowserView */}
+      {/* Browser Toolbar */}
       <div
-        className="flex items-center gap-2 px-3 py-2.5 shrink-0"
+        className="flex items-center gap-2 px-3 shrink-0"
         style={{
           backgroundColor: "#3D3929",
           borderBottom: "1px solid #4A4539",
-          minHeight: "52px",
+          minHeight: "50px",
           zIndex: 9999,
           position: "relative",
         }}
       >
-        {/* EXIT — large, always visible, impossible to miss */}
+        {/* Exit button */}
         <button
           onClick={closeBrowser}
-          className="text-white font-bold px-5 py-2.5 rounded-lg transition-all hover:scale-105 active:scale-95 shadow-lg"
-          style={{ backgroundColor: "#DC2626", fontSize: "14px" }}
-          title="Close browser and return to dashboard (or press Escape)"
+          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] shrink-0"
+          style={{ backgroundColor: "#DC2626", boxShadow: "0 1px 3px rgba(220,38,38,0.3)" }}
+          title="Close browser and return to dashboard"
         >
-          ← Exit Browser
+          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+          </svg>
+          Exit
         </button>
 
-        <div
-          className="w-px h-6 mx-1"
-          style={{ backgroundColor: "#4A4539" }}
-        />
+        {/* Divider */}
+        <div className="h-5 w-px shrink-0" style={{ backgroundColor: "#4A4539" }} />
 
-        <button
-          onClick={() => api.back()}
-          className="text-lg px-2 py-1 rounded transition-colors"
-          style={{ color: "#A89F91" }}
-          title="Back"
-        >
-          ←
-        </button>
-        <button
-          onClick={() => api.forward()}
-          className="text-lg px-2 py-1 rounded transition-colors"
-          style={{ color: "#A89F91" }}
-          title="Forward"
-        >
-          →
-        </button>
-        <button
-          onClick={() => api.refresh()}
-          className="text-lg px-2 py-1 rounded transition-colors"
-          style={{ color: "#A89F91" }}
-          title="Refresh"
-        >
-          ↻
-        </button>
+        {/* Back / Forward / Refresh */}
+        <ToolbarIconBtn onClick={() => api.back()} title="Back">
+          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
+          </svg>
+        </ToolbarIconBtn>
+        <ToolbarIconBtn onClick={() => api.forward()} title="Forward">
+          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+          </svg>
+        </ToolbarIconBtn>
+        <ToolbarIconBtn onClick={() => api.refresh()} title="Refresh">
+          <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+          </svg>
+        </ToolbarIconBtn>
 
+        {/* URL input */}
         <form onSubmit={handleSubmit} className="flex-1 flex">
-          <input
-            type="text"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            className="flex-1 rounded-lg px-3 py-1.5 text-sm focus:outline-none"
-            style={{
-              border: "1px solid #4A4539",
-              backgroundColor: "#2D2B28",
-              color: "#F5F0EB",
-            }}
-          />
+          <div className="relative w-full">
+            {/* Loading indicator dot */}
+            {loading && (
+              <div
+                className="pointer-events-none absolute inset-y-0 left-3 flex items-center"
+              >
+                <div
+                  className="h-2 w-2 rounded-full animate-pulse"
+                  style={{ backgroundColor: "#F59E0B" }}
+                />
+              </div>
+            )}
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="w-full rounded-lg py-1.5 text-sm transition-all duration-150"
+              style={{
+                border: "1px solid #4A4539",
+                backgroundColor: "#2D2B28",
+                color: "#F5F0EB",
+                paddingLeft: loading ? "28px" : "12px",
+                paddingRight: "12px",
+              }}
+              onFocus={(e) => {
+                e.currentTarget.style.borderColor = "#D97706";
+                e.currentTarget.style.boxShadow = "0 0 0 2px rgba(217,119,6,0.2)";
+                e.currentTarget.select();
+              }}
+              onBlur={(e) => {
+                e.currentTarget.style.borderColor = "#4A4539";
+                e.currentTarget.style.boxShadow = "none";
+              }}
+            />
+          </div>
         </form>
 
-        {loading && (
-          <span className="text-xs animate-pulse" style={{ color: "#F59E0B" }}>
-            Loading...
-          </span>
-        )}
-
-        <span className="text-[10px]" style={{ color: "#6B6458" }}>
-          Press Esc to exit
+        {/* Esc hint */}
+        <span className="text-[10px] shrink-0" style={{ color: "#4A4539" }}>
+          Esc to exit
         </span>
       </div>
 
@@ -435,124 +500,155 @@ export function TicketBrowser() {
         >
           {/* Panel tabs */}
           <div
-            className="flex shrink-0"
-            style={{ borderBottom: "1px solid #E8E2DB" }}
+            className="flex shrink-0 border-b"
+            style={{ borderColor: "#E8E2DB" }}
           >
-            <button
-              onClick={() => setDataTab("live")}
-              className="flex-1 py-2.5 text-xs font-medium transition-colors"
-              style={{
-                color: dataTab === "live" ? "#D97706" : "#8C8680",
-                borderBottom:
-                  dataTab === "live" ? "2px solid #D97706" : "2px solid transparent",
-                backgroundColor:
-                  dataTab === "live" ? "rgba(217, 119, 6, 0.05)" : "transparent",
-              }}
-            >
-              Live Data{" "}
-              {data && data.count > 0 && (
-                <span
-                  className="ml-1 text-white px-1.5 py-0.5 rounded-full text-[10px]"
-                  style={{ backgroundColor: "#D97706" }}
-                >
-                  {data.count}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setDataTab("history")}
-              className="flex-1 py-2.5 text-xs font-medium transition-colors"
-              style={{
-                color: dataTab === "history" ? "#D97706" : "#8C8680",
-                borderBottom:
-                  dataTab === "history" ? "2px solid #D97706" : "2px solid transparent",
-                backgroundColor:
-                  dataTab === "history"
-                    ? "rgba(217, 119, 6, 0.05)"
-                    : "transparent",
-              }}
-            >
-              History{" "}
-              {history.length > 0 && (
-                <span
-                  className="ml-1 px-1.5 py-0.5 rounded-full text-[10px]"
+            {(["live", "history"] as const).map((tab) => {
+              const isActive = dataTab === tab;
+              const label = tab === "live" ? "Live Data" : "History";
+              const badge =
+                tab === "live" && data && data.count > 0
+                  ? data.count
+                  : tab === "history" && history.length > 0
+                  ? history.length
+                  : null;
+
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setDataTab(tab)}
+                  className="flex-1 py-2.5 text-xs font-semibold transition-all duration-150 flex items-center justify-center gap-1.5"
                   style={{
-                    backgroundColor: "#E8E2DB",
-                    color: "#4A4845",
+                    color: isActive ? "#D97706" : "#8C8680",
+                    borderBottom: isActive ? "2px solid #D97706" : "2px solid transparent",
+                    backgroundColor: isActive ? "rgba(217,119,6,0.04)" : "transparent",
                   }}
                 >
-                  {history.length}
-                </span>
-              )}
-            </button>
+                  {label}
+                  {badge !== null && (
+                    <span
+                      className="rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none"
+                      style={
+                        tab === "live"
+                          ? { backgroundColor: "#D97706", color: "#FFFFFF" }
+                          : { backgroundColor: "#E8E2DB", color: "#4A4845" }
+                      }
+                    >
+                      {badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Panel content */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {dataTab === "live" && (
               <>
                 {(!data || data.count === 0) && (
-                  <div
-                    className="text-center py-12"
-                    style={{ color: "#8C8680" }}
-                  >
-                    <p className="text-3xl mb-3">📊</p>
-                    <p className="text-sm">
-                      Browse to an event page
-                      <br />
-                      Data appears automatically
+                  <div className="text-center py-16 space-y-3">
+                    <div
+                      className="inline-flex h-12 w-12 items-center justify-center rounded-xl mx-auto"
+                      style={{ backgroundColor: "rgba(217,119,6,0.08)" }}
+                    >
+                      <svg
+                        className="h-6 w-6"
+                        style={{ color: "#D97706" }}
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-medium text-warm-700">Browse to an event page</p>
+                    <p className="text-xs text-warm-400">
+                      Pricing data appears automatically as you browse
                     </p>
                   </div>
                 )}
 
                 {data && data.count > 0 && stats && (
                   <>
-                    <div>
+                    {/* Event info */}
+                    <div
+                      className="rounded-lg p-3"
+                      style={{ backgroundColor: "#FAF9F6", border: "1px solid #E8E2DB" }}
+                    >
                       <p
                         className="text-sm font-semibold truncate"
                         style={{ color: "#2D2B28" }}
+                        title={data.eventName}
                       >
                         {data.eventName}
                       </p>
-                      <p className="text-xs" style={{ color: "#8C8680" }}>
+                      <span
+                        className="inline-block mt-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                        style={{
+                          backgroundColor: "rgba(217,119,6,0.1)",
+                          color: "#b45309",
+                        }}
+                      >
                         {data.platform}
-                      </p>
+                      </span>
                     </div>
 
+                    {/* Save button */}
                     <button
                       onClick={saveSnapshot}
                       disabled={saved}
-                      className="w-full text-xs font-medium py-2 rounded-lg transition-all"
+                      className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-all duration-150"
                       style={{
-                        backgroundColor: saved ? "rgba(5, 150, 105, 0.1)" : "#D97706",
+                        backgroundColor: saved
+                          ? "rgba(5, 150, 105, 0.1)"
+                          : "#D97706",
                         color: saved ? "#059669" : "#FFFFFF",
                         cursor: saved ? "default" : "pointer",
+                        boxShadow: saved ? "none" : "0 1px 3px rgba(217,119,6,0.25)",
                       }}
                     >
-                      {saved ? "✓ Saved to Database" : "Save Snapshot"}
+                      {saved ? (
+                        <>
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          Saved to Database
+                        </>
+                      ) : (
+                        <>
+                          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z" />
+                          </svg>
+                          Save Snapshot
+                        </>
+                      )}
                     </button>
 
+                    {/* Stat grid */}
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        { label: "Get-in", value: fmt(stats.getIn), accent: true },
-                        { label: "Median", value: fmt(stats.median) },
-                        { label: "Average", value: fmt(stats.avg) },
-                        { label: "Listings", value: String(stats.total) },
+                        { label: "Get-in", value: fmt(stats.getIn), highlight: true },
+                        { label: "Median", value: fmt(stats.median), highlight: false },
+                        { label: "Average", value: fmt(stats.avg), highlight: false },
+                        { label: "Listings", value: stats.total.toLocaleString(), highlight: false },
                       ].map((s) => (
                         <div
                           key={s.label}
                           className="rounded-lg p-3"
-                          style={{ backgroundColor: "#FAF9F6" }}
+                          style={{
+                            backgroundColor: s.highlight ? "rgba(5,150,105,0.06)" : "#FAF9F6",
+                            border: s.highlight ? "1px solid rgba(5,150,105,0.15)" : "1px solid #E8E2DB",
+                          }}
                         >
                           <p
-                            className="text-[10px] uppercase tracking-wider"
-                            style={{ color: "#8C8680" }}
+                            className="text-[10px] uppercase tracking-wider font-medium"
+                            style={{ color: "#A89F91" }}
                           >
                             {s.label}
                           </p>
                           <p
-                            className="text-lg font-bold"
-                            style={{ color: s.accent ? "#059669" : "#2D2B28" }}
+                            className="text-base font-bold mt-0.5 tabular-nums"
+                            style={{ color: s.highlight ? "#059669" : "#2D2B28" }}
                           >
                             {s.value}
                           </p>
@@ -560,26 +656,25 @@ export function TicketBrowser() {
                       ))}
                     </div>
 
+                    {/* Listings table */}
                     <div>
                       <p
-                        className="text-[10px] uppercase tracking-wider mb-2"
-                        style={{ color: "#8C8680" }}
+                        className="text-[10px] uppercase tracking-wider font-semibold mb-2"
+                        style={{ color: "#A89F91" }}
                       >
-                        All Listings (sorted by price)
+                        All Listings — sorted by price
                       </p>
-                      <div className="overflow-y-auto max-h-[calc(100vh-520px)]">
+                      <div className="overflow-y-auto max-h-[calc(100vh-520px)] rounded-lg border" style={{ borderColor: "#E8E2DB" }}>
                         <table className="w-full text-xs">
-                          <thead className="sticky top-0" style={{ backgroundColor: "#FFFFFF" }}>
-                            <tr
-                              style={{
-                                borderBottom: "1px solid #E8E2DB",
-                                color: "#8C8680",
-                              }}
-                            >
-                              <th className="text-left py-1.5 pr-1">Sec</th>
-                              <th className="text-left py-1.5 pr-1">Row</th>
-                              <th className="text-right py-1.5 pr-1">Price</th>
-                              <th className="text-right py-1.5">Qty</th>
+                          <thead
+                            className="sticky top-0"
+                            style={{ backgroundColor: "#FAF9F6", borderBottom: "1px solid #E8E2DB" }}
+                          >
+                            <tr style={{ color: "#8C8680" }}>
+                              <th className="text-left px-2 py-2 font-semibold">Section</th>
+                              <th className="text-left px-2 py-2 font-semibold">Row</th>
+                              <th className="text-right px-2 py-2 font-semibold">Price</th>
+                              <th className="text-right px-2 py-2 font-semibold">Qty</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -592,37 +687,45 @@ export function TicketBrowser() {
                                   className="transition-colors"
                                   style={{
                                     borderBottom: "1px solid #F5F0EB",
+                                    backgroundColor: i % 2 === 0 ? "#FFFFFF" : "rgba(250,249,246,0.5)",
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    (e.currentTarget as HTMLTableRowElement).style.backgroundColor =
+                                      "rgba(245,240,235,0.8)";
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    (e.currentTarget as HTMLTableRowElement).style.backgroundColor =
+                                      i % 2 === 0 ? "#FFFFFF" : "rgba(250,249,246,0.5)";
                                   }}
                                 >
-                                  <td className="py-1.5 pr-1 truncate max-w-[80px]">
+                                  <td className="px-2 py-1.5 truncate max-w-[80px] text-warm-700">
                                     {l.section || "—"}
                                   </td>
-                                  <td className="py-1.5 pr-1">{l.row || "—"}</td>
-                                  <td className="py-1.5 pr-1 text-right font-mono">
+                                  <td className="px-2 py-1.5 text-warm-500">
+                                    {l.row || "—"}
+                                  </td>
+                                  <td className="px-2 py-1.5 text-right font-mono">
                                     {i === 0 ? (
-                                      <span
-                                        className="font-semibold"
-                                        style={{ color: "#059669" }}
-                                      >
+                                      <span className="font-bold" style={{ color: "#059669" }}>
                                         {fmt(l.price)}
                                       </span>
                                     ) : (
-                                      <span style={{ color: "#2D2B28" }}>
-                                        {fmt(l.price)}
-                                      </span>
+                                      <span style={{ color: "#2D2B28" }}>{fmt(l.price)}</span>
                                     )}
                                   </td>
-                                  <td className="py-1.5 text-right">{l.quantity}</td>
+                                  <td className="px-2 py-1.5 text-right text-warm-500">
+                                    {l.quantity}
+                                  </td>
                                 </tr>
                               ))}
                           </tbody>
                         </table>
                         {data.count > 200 && (
                           <p
-                            className="text-[10px] text-center mt-1"
-                            style={{ color: "#8C8680" }}
+                            className="text-[10px] text-center py-2"
+                            style={{ color: "#A89F91", backgroundColor: "#FAF9F6" }}
                           >
-                            Showing 200 of {data.count}
+                            Showing top 200 of {data.count.toLocaleString()} listings
                           </p>
                         )}
                       </div>
@@ -635,46 +738,58 @@ export function TicketBrowser() {
             {dataTab === "history" && (
               <>
                 {history.length === 0 && (
-                  <div
-                    className="text-center py-12 text-sm"
-                    style={{ color: "#8C8680" }}
-                  >
-                    Events you browse will appear here
+                  <div className="text-center py-16 space-y-2">
+                    <p className="text-sm font-medium text-warm-600">No history yet</p>
+                    <p className="text-xs text-warm-400">
+                      Events you browse will appear here
+                    </p>
                   </div>
                 )}
                 {history.map((h, i) => (
                   <div
                     key={i}
-                    className="rounded-lg p-3 cursor-pointer transition-all hover:shadow-sm"
-                    style={{ backgroundColor: "#FAF9F6" }}
+                    className="rounded-lg p-3 cursor-pointer transition-all duration-150"
+                    style={{
+                      backgroundColor: "#FAF9F6",
+                      border: "1px solid #E8E2DB",
+                    }}
                     onClick={() => navigate(h.url)}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLDivElement).style.backgroundColor = "#F5F0EB";
+                      (e.currentTarget as HTMLDivElement).style.borderColor = "#D97706";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLDivElement).style.backgroundColor = "#FAF9F6";
+                      (e.currentTarget as HTMLDivElement).style.borderColor = "#E8E2DB";
+                    }}
                   >
                     <p
-                      className="text-sm font-medium truncate"
+                      className="text-sm font-semibold truncate"
                       style={{ color: "#2D2B28" }}
                     >
                       {h.eventName}
                     </p>
-                    <p className="text-xs mt-0.5" style={{ color: "#8C8680" }}>
-                      {h.platform} · {h.time}
+                    <p className="text-xs mt-0.5" style={{ color: "#A89F91" }}>
+                      {h.platform} &middot; {h.time}
                     </p>
-                    <div className="flex gap-4 mt-2 text-xs">
+                    <div className="flex gap-4 mt-2 text-xs border-t pt-2" style={{ borderColor: "#E8E2DB" }}>
                       <span>
-                        <span style={{ color: "#8C8680" }}>Get-in: </span>
-                        <span
-                          className="font-semibold"
-                          style={{ color: "#059669" }}
-                        >
+                        <span style={{ color: "#A89F91" }}>Get-in </span>
+                        <span className="font-bold" style={{ color: "#059669" }}>
                           {fmt(h.getIn)}
                         </span>
                       </span>
                       <span>
-                        <span style={{ color: "#8C8680" }}>Med: </span>
-                        <span className="font-medium">{fmt(h.median)}</span>
+                        <span style={{ color: "#A89F91" }}>Median </span>
+                        <span className="font-semibold" style={{ color: "#2D2B28" }}>
+                          {fmt(h.median)}
+                        </span>
                       </span>
                       <span>
-                        <span style={{ color: "#8C8680" }}>Listings: </span>
-                        <span className="font-medium">{h.total}</span>
+                        <span style={{ color: "#A89F91" }}>Qty </span>
+                        <span className="font-semibold" style={{ color: "#2D2B28" }}>
+                          {h.total.toLocaleString()}
+                        </span>
                       </span>
                     </div>
                   </div>
