@@ -34,6 +34,8 @@ interface TicketOpsAPI {
   closeBrowser: () => Promise<void>;
   getData: () => Promise<CapturedData | null>;
   setSidebarWidth: (w: number) => Promise<void>;
+  setBrowserDataPanelWidth: (width: number) => Promise<void>;
+  setBrowserTopOffset: (offset: number) => Promise<void>;
   onUrlChanged: (cb: (url: string) => void) => () => void;
   onLoadingChanged: (cb: (loading: boolean) => void) => () => void;
   onBrowserClosed: (cb: () => void) => () => void;
@@ -117,7 +119,57 @@ export function TicketBrowser() {
   const [history, setHistory] = useState<ScanHistoryEntry[]>([]);
   const [dataTab, setDataTab] = useState<"live" | "history">("live");
   const [saved, setSaved] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(380);
+  const isDraggingRef = useRef(false);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const api = typeof window !== "undefined" ? window.ticketOps : null;
+
+  // Sync toolbar height to main process as top offset
+  useEffect(() => {
+    if (!api || !toolbarRef.current || !isOpen) return;
+    const el = toolbarRef.current;
+    const sync = () => {
+      const rect = el.getBoundingClientRect();
+      // Total offset = toolbar bottom position relative to the window content area
+      api.setBrowserTopOffset?.(Math.round(rect.bottom));
+    };
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [api, isOpen]);
+
+  // Draggable resize handle for data panel
+  const startResize = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      isDraggingRef.current = true;
+      const startX = e.clientX;
+      const startWidth = panelWidth;
+
+      const onMove = (ev: MouseEvent) => {
+        if (!isDraggingRef.current) return;
+        const delta = startX - ev.clientX;
+        const newWidth = Math.max(200, Math.min(600, startWidth + delta));
+        setPanelWidth(newWidth);
+        api?.setBrowserDataPanelWidth?.(newWidth);
+      };
+
+      const onUp = () => {
+        isDraggingRef.current = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    },
+    [panelWidth, api]
+  );
 
   // Listen for URL/loading changes — with cleanup
   useEffect(() => {
@@ -311,7 +363,7 @@ export function TicketBrowser() {
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="Paste a ticket URL or search…"
+              placeholder="Enter URL or search..."
               className="w-full rounded-xl py-3 pl-10 pr-4 text-sm transition-all duration-150"
               style={{
                 border: "1px solid #E8E2DB",
@@ -336,12 +388,12 @@ export function TicketBrowser() {
         {/* Quick links */}
         <div>
           <h3 className="section-label block mb-3">Browse Ticket Sites</h3>
-          <div className="grid grid-cols-5 gap-3">
+          <div className="flex flex-wrap gap-2">
             {QUICK_LINKS.map((link) => (
               <button
                 key={link.label}
                 onClick={() => navigate(link.url)}
-                className="rounded-xl px-4 py-8 text-center font-semibold text-base text-white transition-all duration-150 hover:scale-[1.03] hover:shadow-lg active:scale-[0.97]"
+                className="rounded-lg px-4 py-2.5 text-center font-semibold text-sm text-white transition-all duration-150 hover:scale-[1.03] hover:shadow-lg active:scale-[0.97]"
                 style={{ backgroundColor: link.color }}
               >
                 {link.label}
@@ -401,11 +453,12 @@ export function TicketBrowser() {
     <div className="flex flex-col h-[calc(100vh-112px)]">
       {/* Browser Toolbar */}
       <div
-        className="flex items-center gap-2 px-3 shrink-0"
+        ref={toolbarRef}
+        className="flex items-center gap-1.5 px-2 shrink-0"
         style={{
           backgroundColor: "#3D3929",
           borderBottom: "1px solid #4A4539",
-          minHeight: "50px",
+          height: "42px",
           zIndex: 9999,
           position: "relative",
         }}

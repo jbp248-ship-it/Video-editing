@@ -13,7 +13,6 @@ import {
   Bar,
   ComposedChart,
   Area,
-  Legend,
 } from "recharts";
 
 interface DataPoint {

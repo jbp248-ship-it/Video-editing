@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("ticketOps", {
   closeBrowser: () => ipcRenderer.invoke("browser-close"),
   getData: () => ipcRenderer.invoke("browser-get-data"),
   setSidebarWidth: (w) => ipcRenderer.invoke("browser-set-sidebar-width", w),
+  setBrowserDataPanelWidth: (width) => ipcRenderer.invoke("browser-set-data-panel-width", width),
+  setBrowserTopOffset: (offset) => ipcRenderer.invoke("browser-set-top-offset", offset),
 
   // Returns unsubscribe function to prevent listener stacking
   onUrlChanged: (cb) => {

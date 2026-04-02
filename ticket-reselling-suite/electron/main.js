@@ -117,6 +117,9 @@ function createWindow() {
   });
   mainWindow.on("closed", () => { mainWindow = null; });
   mainWindow.on("resize", () => resizeBrowserView());
+  mainWindow.on("maximize", () => resizeBrowserView());
+  mainWindow.on("unmaximize", () => resizeBrowserView());
+  mainWindow.on("move", () => resizeBrowserView());
 }
 
 function navigateToApp() {
@@ -126,19 +129,17 @@ function navigateToApp() {
 
 // ─── Embedded Browser (BrowserView) ────────────────────────────────────
 
-const DATA_PANEL_WIDTH = 380;
-// Dashboard header (64px) + browser toolbar (56px) = 120px from window top
-// Extra padding ensures toolbar buttons are never covered by BrowserView
-const BROWSER_TOP_OFFSET = 120;
+let dataPanelWidth = 380;
+let browserTopOffset = 120;
 
 function resizeBrowserView() {
   if (!ticketBrowserView || !mainWindow) return;
   const bounds = mainWindow.getContentBounds();
   ticketBrowserView.setBounds({
-    x: sidebarWidth,
-    y: BROWSER_TOP_OFFSET,
-    width: Math.max(300, bounds.width - sidebarWidth - DATA_PANEL_WIDTH),
-    height: Math.max(200, bounds.height - BROWSER_TOP_OFFSET),
+    x: Math.max(0, sidebarWidth),
+    y: Math.max(0, browserTopOffset),
+    width: Math.max(0, bounds.width - sidebarWidth - dataPanelWidth),
+    height: Math.max(0, bounds.height - browserTopOffset),
   });
 }
 
@@ -462,6 +463,18 @@ ipcMain.handle("browser-get-data", async () => {
 // Sync sidebar collapse state from renderer
 ipcMain.handle("browser-set-sidebar-width", (_, width) => {
   sidebarWidth = width;
+  resizeBrowserView();
+});
+
+// Sync data panel width from renderer (resizable panel)
+ipcMain.handle("browser-set-data-panel-width", (_, width) => {
+  dataPanelWidth = Math.max(200, Math.min(600, width));
+  resizeBrowserView();
+});
+
+// Sync top offset from renderer (exact toolbar height)
+ipcMain.handle("browser-set-top-offset", (_, offset) => {
+  browserTopOffset = Math.max(0, offset);
   resizeBrowserView();
 });
 

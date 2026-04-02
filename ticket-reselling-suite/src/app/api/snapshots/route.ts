@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 
 // ─── GET /api/snapshots ──────────────────────────────────────────────────────
 // Returns price trend data for a specific event.
@@ -59,8 +60,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const items = Array.isArray(body) ? body : [body];
 
-  const validData = [];
-  const errors = [];
+  const validData: Prisma.MarketSnapshotCreateManyInput[] = [];
+  const errors: Array<{ error: unknown; input: unknown }> = [];
 
   for (const item of items) {
     const parsed = CreateSnapshotSchema.safeParse(item);
