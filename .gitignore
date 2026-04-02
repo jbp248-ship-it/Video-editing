@@ -18,3 +18,4 @@ venv/
 uploads/
 desktop/node_modules/
 desktop/dist/
+*.zip
