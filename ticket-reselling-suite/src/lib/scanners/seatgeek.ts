@@ -235,7 +235,7 @@ export async function extractSeatGeekFromDom(
   // 2. Try extracting from window-level data objects (React hydration state)
   try {
     const windowData = await page.evaluate(() => {
-      const win = window as Record<string, unknown>;
+      const win = window as unknown as Record<string, unknown>;
       const candidates: unknown[] = [];
       for (const key of Object.keys(win)) {
         if (

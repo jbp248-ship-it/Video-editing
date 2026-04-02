@@ -463,21 +463,7 @@ export function TicketBrowser() {
           position: "relative",
         }}
       >
-        {/* Exit button */}
-        <button
-          onClick={closeBrowser}
-          className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-all duration-150 hover:scale-[1.02] active:scale-[0.98] shrink-0"
-          style={{ backgroundColor: "#DC2626", boxShadow: "0 1px 3px rgba(220,38,38,0.3)" }}
-          title="Close browser and return to dashboard"
-        >
-          <svg className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-          </svg>
-          Exit
-        </button>
-
-        {/* Divider */}
-        <div className="h-5 w-px shrink-0" style={{ backgroundColor: "#4A4539" }} />
+        {/* Nav buttons: back, forward, refresh */}
 
         {/* Back / Forward / Refresh */}
         <ToolbarIconBtn onClick={() => api.back()} title="Back">
