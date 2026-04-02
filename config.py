@@ -75,6 +75,25 @@ class ScoringConfig:
 
 
 @dataclass
+class NoteConfig:
+    """Controls AI note generation."""
+    generate_notes: bool = True
+    note_template: str = "detailed"      # "detailed", "concise", "action-focused"
+    extract_action_items: bool = True
+    extract_decisions: bool = True
+    enable_speaker_id: bool = True
+    enable_nlp_analysis: bool = True
+    enable_semantic_search: bool = False  # Requires sentence-transformers
+    max_topics: int = 20
+    max_key_takeaways: int = 7
+    include_timestamps: bool = True
+    include_full_transcript: bool = True
+    export_formats: tuple = ("markdown", "json")  # Options: markdown, json, obsidian, notion, csv
+    summary_model: str = "facebook/bart-large-cnn"
+    num_speakers: int = 0                 # 0 = auto-detect
+
+
+@dataclass
 class PipelineConfig:
     """Top-level config aggregating all sub-configs."""
     clip: ClipConfig = field(default_factory=ClipConfig)
@@ -82,6 +101,7 @@ class PipelineConfig:
     header: HeaderConfig = field(default_factory=HeaderConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     scoring: ScoringConfig = field(default_factory=ScoringConfig)
+    note: NoteConfig = field(default_factory=NoteConfig)
 
     # Whisper model size: "tiny", "base", "small", "medium", "large"
     whisper_model: str = "base"

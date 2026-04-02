@@ -301,6 +301,35 @@ HTML_TEMPLATE = """
             text-align: center;
         }
 
+        .notes-card {
+            background: linear-gradient(135deg, #0d1f1e 0%, #111 100%);
+            border: 1px solid #25f4ee;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 16px 0;
+            text-align: center;
+        }
+        .notes-card h4 {
+            font-size: 18px;
+            color: #25f4ee;
+            margin-bottom: 6px;
+        }
+        .notes-card p {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 14px;
+        }
+        .notes-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .notes-buttons .btn-download {
+            font-size: 13px;
+            padding: 8px 16px;
+        }
+
         .error-msg {
             background: #2a0a0a;
             border: 1px solid #fe2c55;
@@ -367,6 +396,19 @@ HTML_TEMPLATE = """
                     <option value="high">Best quality</option>
                 </select>
             </div>
+
+            <div class="setting-row">
+                <div class="setting-label">
+                    AI Notes
+                    <small>Generate smart meeting notes</small>
+                </div>
+                <select id="notes-mode">
+                    <option value="detailed" selected>Detailed notes</option>
+                    <option value="concise">Concise summary</option>
+                    <option value="action">Action items only</option>
+                    <option value="off">No notes</option>
+                </select>
+            </div>
         </div>
 
         <div class="error-msg" id="error-msg"></div>
@@ -391,6 +433,14 @@ HTML_TEMPLATE = """
         <div class="results-header">
             <h2>Your clips are ready!</h2>
             <p id="results-summary"></p>
+        </div>
+        <div class="notes-card" id="notes-card" style="display:none">
+            <h4>AI Meeting Notes</h4>
+            <p>Structured notes with topics, action items, and key takeaways</p>
+            <div class="notes-buttons">
+                <a href="" class="btn-download" id="btn-notes-md">Markdown</a>
+                <a href="" class="btn-download" id="btn-notes-json">JSON</a>
+            </div>
         </div>
         <div id="clips-list"></div>
         <button class="btn-new" onclick="location.reload()">
@@ -459,6 +509,7 @@ HTML_TEMPLATE = """
         const maxClips = document.getElementById('max-clips').value;
         const clipLength = document.getElementById('clip-length').value;
         const quality = document.getElementById('quality').value;
+        const notesMode = document.getElementById('notes-mode').value;
 
         // Upload file
         const formData = new FormData();
@@ -466,6 +517,7 @@ HTML_TEMPLATE = """
         formData.append('max_clips', maxClips);
         formData.append('clip_length', clipLength);
         formData.append('quality', quality);
+        formData.append('notes_mode', notesMode);
 
         updateProgress('Uploading video...', '', 10);
 
@@ -489,10 +541,11 @@ HTML_TEMPLATE = """
                 .then(data => {
                     if (data.status === 'processing') {
                         const stages = {
-                            'ingestion': ['Analyzing video...', 25],
-                            'segmentation': ['Finding the best moments...', 45],
-                            'scoring': ['Ranking clips by virality...', 65],
-                            'rendering': ['Creating your clips...', 80],
+                            'ingestion': ['Analyzing video...', 20],
+                            'segmentation': ['Finding the best moments...', 40],
+                            'scoring': ['Ranking clips by virality...', 55],
+                            'rendering': ['Creating your clips...', 70],
+                            'notes': ['Generating AI meeting notes...', 90],
                         };
                         const info = stages[data.stage] || ['Working...', 50];
                         updateProgress(info[0], data.detail || '', info[1]);
@@ -522,6 +575,29 @@ HTML_TEMPLATE = """
         document.getElementById('results-section').classList.add('active');
         document.getElementById('results-summary').textContent =
             data.clips.length + ' clips created from your video';
+
+        // Show notes card if notes were generated
+        if (data.note_files && data.note_files.length > 0) {
+            const notesCard = document.getElementById('notes-card');
+            notesCard.style.display = 'block';
+            const btnMd = document.getElementById('btn-notes-md');
+            const btnJson = document.getElementById('btn-notes-json');
+            // Find markdown and json files among note_files
+            const mdFile = data.note_files.find(f => f.endsWith('.md'));
+            const jsonFile = data.note_files.find(f => f.endsWith('.json'));
+            if (mdFile) {
+                btnMd.href = '/download/' + data.job_id + '/notes/' + mdFile.split('/').pop();
+                btnMd.style.display = 'inline-block';
+            } else {
+                btnMd.style.display = 'none';
+            }
+            if (jsonFile) {
+                btnJson.href = '/download/' + data.job_id + '/notes/' + jsonFile.split('/').pop();
+                btnJson.style.display = 'inline-block';
+            } else {
+                btnJson.style.display = 'none';
+            }
+        }
 
         const list = document.getElementById('clips-list');
         list.innerHTML = '';
@@ -599,6 +675,9 @@ def upload():
     preset_map = {"fast": "ultrafast", "medium": "medium", "high": "slow"}
     whisper_map = {"fast": "tiny", "medium": "base", "high": "small"}
 
+    # Parse notes settings
+    notes_mode = request.form.get("notes_mode", "detailed")
+
     # Build config
     config = PipelineConfig()
     config.clip.max_clips = max_clips
@@ -607,6 +686,13 @@ def upload():
     config.output.preset = preset_map.get(quality, "medium")
     config.whisper_model = whisper_map.get(quality, "base")
     config.output.output_dir = f"output/{job_id}"
+
+    # Note generation config
+    if notes_mode != "off":
+        config.note.generate_notes = True
+        config.note.note_template = notes_mode
+    else:
+        config.note.generate_notes = False
 
     # Track job
     jobs[job_id] = {
@@ -654,6 +740,9 @@ def _run_pipeline(job_id: str):
             elif "stage 4" in msg_lower or "rendering" in msg_lower:
                 job["stage"] = "rendering"
                 job["detail"] = "Exporting vertical clips with captions"
+            elif "stage 5" in msg_lower or "note" in msg_lower:
+                job["stage"] = "notes"
+                job["detail"] = "Generating AI meeting notes"
 
         pipeline_mod.logger.info = tracking_info
 
@@ -677,8 +766,14 @@ def _run_pipeline(job_id: str):
                     "size_mb": f"{size_mb:.1f}",
                 })
 
+        # Gather note files from manifest
+        note_files = []
+        if manifest_path.exists():
+            note_files = manifest.get("notes", {}).get("files", [])
+
         job["status"] = "done"
         job["clips"] = clips
+        job["note_files"] = note_files
         pipeline_mod.logger.info = original_info
         logger.info(f"Job {job_id} complete: {len(clips)} clips")
 
@@ -700,6 +795,7 @@ def status(job_id):
         "stage": job.get("stage", ""),
         "detail": job.get("detail", ""),
         "clips": job.get("clips", []),
+        "note_files": job.get("note_files", []),
         "error": job.get("error"),
         "job_id": job_id,
     })
@@ -724,6 +820,26 @@ def download(job_id, filename):
         return "File not found", 404
 
     return send_file(str(file_path.absolute()), as_attachment=True)
+
+
+@app.route("/download/<job_id>/notes/<filename>")
+def download_notes(job_id, filename):
+    """Download a generated note file from the notes subdirectory."""
+    safe_filename = secure_filename(filename)
+    output_base = Path(f"output/{job_id}")
+
+    # Notes may be at the top level or inside a video-name subdirectory
+    candidates = [output_base / safe_filename]
+    if output_base.exists():
+        for subdir in output_base.iterdir():
+            if subdir.is_dir():
+                candidates.append(subdir / safe_filename)
+
+    for candidate in candidates:
+        if candidate.exists():
+            return send_file(str(candidate.absolute()), as_attachment=True)
+
+    return "Note file not found", 404
 
 
 # ── Main ────────────────────────────────────────────────────────────────

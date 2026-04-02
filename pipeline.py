@@ -45,11 +45,11 @@ def process_video(video_path: str, config: PipelineConfig) -> list[str]:
     logger.info(f"{'='*60}")
 
     # === STAGE 1: Ingestion ===
-    logger.info("Stage 1/4: Ingestion & validation")
+    logger.info("Stage 1/5: Ingestion & validation")
     meta, audio_path = ingest(video_path, config)
 
     # === STAGE 2: Segmentation ===
-    logger.info("Stage 2/4: Content-aware segmentation")
+    logger.info("Stage 2/5: Content-aware segmentation")
     segments, transcript = segment_video(
         video_path, audio_path, meta.duration, config
     )
@@ -60,19 +60,52 @@ def process_video(video_path: str, config: PipelineConfig) -> list[str]:
         return []
 
     # === STAGE 3: Scoring ===
-    logger.info("Stage 3/4: Virality scoring & ranking")
+    logger.info("Stage 3/5: Virality scoring & ranking")
     scored = score_segments(segments, transcript, config)
     logger.info(f"Selected top {len(scored)} clips")
 
     # === STAGE 4: Rendering ===
-    logger.info("Stage 4/4: Rendering clips with captions & headers")
+    logger.info("Stage 4/5: Rendering clips with captions & headers")
     outputs = render_all_clips(
         video_path, scored, transcript,
         meta.width, meta.height, config,
     )
 
+    # === STAGE 5: Note Generation ===
+    note_files = []
+    if config.note.generate_notes:
+        logger.info("Stage 5/5: Generating AI meeting notes")
+        try:
+            from note_taker import generate_notes
+            from speaker_id import diarize_audio
+            from nlp_engine import analyze_transcript
+            from note_export import export_all
+
+            # Speaker diarization
+            speaker_data = None
+            if config.note.enable_speaker_id:
+                speaker_data = diarize_audio(audio_path, config.note.num_speakers or None)
+
+            # NLP analysis
+            nlp_data = None
+            if config.note.enable_nlp_analysis:
+                nlp_data = analyze_transcript(transcript)
+
+            # Generate notes
+            notes = generate_notes(transcript, scored, config, speaker_data, nlp_data)
+
+            # Export
+            note_files = export_all(notes, config.output.output_dir, config.note.note_template)
+            logger.info(f"Notes exported: {note_files}")
+        except ImportError as e:
+            logger.warning(f"Note generation modules not available: {e}")
+        except Exception as e:
+            logger.error(f"Note generation failed: {e}")
+    else:
+        logger.info("Stage 5/5: Note generation skipped (disabled)")
+
     # Save metadata
-    _save_manifest(scored, config)
+    _save_manifest(scored, config, note_files=note_files)
 
     elapsed = time.time() - t_start
     logger.info(f"Done! {len(outputs)} clips in {elapsed:.1f}s")
@@ -81,7 +114,7 @@ def process_video(video_path: str, config: PipelineConfig) -> list[str]:
     return outputs
 
 
-def _save_manifest(scored_segments: list, config: PipelineConfig):
+def _save_manifest(scored_segments: list, config: PipelineConfig, note_files: list = None):
     """Save a JSON manifest with clip metadata and scores."""
     manifest = {
         "clips": [],
@@ -89,6 +122,13 @@ def _save_manifest(scored_segments: list, config: PipelineConfig):
             "whisper_model": config.whisper_model,
             "max_clips": config.clip.max_clips,
             "clip_duration_range": [config.clip.min_duration, config.clip.max_duration],
+        },
+        "notes": {
+            "enabled": config.note.generate_notes,
+            "template": config.note.note_template,
+            "files": [str(f) for f in (note_files or [])],
+            "speaker_id_enabled": config.note.enable_speaker_id,
+            "nlp_analysis_enabled": config.note.enable_nlp_analysis,
         },
     }
 
@@ -142,6 +182,7 @@ def process_batch(input_dir: str, config: PipelineConfig) -> dict[str, list[str]
                 header=config.header,
                 output=config.output,
                 scoring=config.scoring,
+                note=config.note,
                 whisper_model=config.whisper_model,
                 use_scene_detection=config.use_scene_detection,
                 scene_threshold=config.scene_threshold,
@@ -207,6 +248,20 @@ Examples:
     parser.add_argument("--fps", type=int, default=30,
                         help="Output FPS (default: 30)")
 
+    # Note generation settings
+    notes_group = parser.add_mutually_exclusive_group()
+    notes_group.add_argument("--notes", action="store_true", default=True,
+                             help="Enable AI note generation (default: on)")
+    notes_group.add_argument("--no-notes", action="store_true",
+                             help="Disable AI note generation")
+    parser.add_argument("--note-template", default="detailed",
+                        choices=["detailed", "concise", "action-focused"],
+                        help="Note template style (default: detailed)")
+    parser.add_argument("--speakers", type=int, default=0,
+                        help="Number of speakers (0 = auto-detect, default: 0)")
+    parser.add_argument("--export-formats", default="markdown,json",
+                        help="Comma-separated note export formats: markdown, json, obsidian, notion, csv (default: markdown,json)")
+
     # Verbosity
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable debug logging")
@@ -233,6 +288,12 @@ def main():
     config.output.output_dir = args.output_dir
     config.output.preset = args.preset
     config.output.fps = args.fps
+
+    # Note generation settings
+    config.note.generate_notes = not args.no_notes
+    config.note.note_template = args.note_template
+    config.note.num_speakers = args.speakers
+    config.note.export_formats = tuple(f.strip() for f in args.export_formats.split(","))
 
     input_path = Path(args.input)
 
