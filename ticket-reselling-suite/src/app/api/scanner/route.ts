@@ -65,8 +65,12 @@ export async function POST(req: NextRequest) {
           averagePrice: result.stats.averagePrice,
           maxPrice: result.stats.maxPrice,
           totalListings: result.stats.totalListings,
-          totalTickets: result.stats.totalListings,
+          totalTickets: result.supply?.totalTicketsRemaining ?? result.stats.totalListings,
           granularity: "HOURLY",
+          ...(result.supply?.soldOutSections?.length ? { soldOutSections: result.supply.soldOutSections.join(",") } : {}),
+          ...(result.supply?.estimatedCapacity ? { estimatedCapacity: result.supply.estimatedCapacity } : {}),
+          ...(result.supply?.soldPercentage != null ? { soldPercentage: result.supply.soldPercentage } : {}),
+          dataSource: "SCANNER",
         },
       });
     }

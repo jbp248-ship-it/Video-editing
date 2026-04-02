@@ -21,6 +21,13 @@ export interface ScanListing {
   ticketsRemaining: number | null;
 }
 
+export interface SectionBreakdown {
+  section: string;
+  available: number;
+  soldOut: boolean;
+  getInPrice: number | null;
+}
+
 export interface ScanResult {
   eventName: string;
   venue: string;
@@ -34,6 +41,13 @@ export interface ScanResult {
     maxPrice: number;
     totalListings: number;
     totalTicketsRemaining: number | null;
+  };
+  supply: {
+    totalTicketsRemaining: number | null;
+    estimatedCapacity: number | null;
+    soldOutSections: string[];
+    soldPercentage: number | null;
+    sectionBreakdown: SectionBreakdown[];
   };
   scannedAt: string;
 }
@@ -289,6 +303,12 @@ export async function scanUrl(url: string): Promise<ScanResult> {
       stats.totalTicketsRemaining = platformResult.totalTicketsRemaining;
     }
 
+    const supply = computeSupply(allListings);
+    // Merge platform-specific supply data
+    if (platformResult.totalTicketsRemaining != null && supply.totalTicketsRemaining == null) {
+      supply.totalTicketsRemaining = platformResult.totalTicketsRemaining;
+    }
+
     return {
       eventName: cleanEventName(eventInfo.eventName),
       venue: eventInfo.venue,
@@ -296,6 +316,7 @@ export async function scanUrl(url: string): Promise<ScanResult> {
       platform,
       listings: allListings.sort((a, b) => a.price - b.price),
       stats,
+      supply,
       scannedAt: new Date().toISOString(),
     };
   } finally {
@@ -556,6 +577,44 @@ function computeStats(listings: ScanListing[]) {
     maxPrice: prices[prices.length - 1],
     totalListings: listings.length,
     totalTicketsRemaining: totalTicketsRemaining > 0 ? totalTicketsRemaining : null,
+  };
+}
+
+function computeSupply(listings: ScanListing[]): ScanResult["supply"] {
+  // Build section breakdown
+  const sectionMap = new Map<string, { available: number; prices: number[] }>();
+  for (const l of listings) {
+    const sec = l.section || "General";
+    const entry = sectionMap.get(sec) ?? { available: 0, prices: [] };
+    entry.available += l.ticketsRemaining ?? l.quantity ?? 1;
+    entry.prices.push(l.price);
+    sectionMap.set(sec, entry);
+  }
+
+  const sectionBreakdown: SectionBreakdown[] = [];
+  const soldOutSections: string[] = [];
+  let totalRemaining = 0;
+
+  for (const [section, data] of sectionMap) {
+    const soldOut = data.available === 0;
+    if (soldOut) soldOutSections.push(section);
+    totalRemaining += data.available;
+    sectionBreakdown.push({
+      section,
+      available: data.available,
+      soldOut,
+      getInPrice: data.prices.length > 0 ? Math.min(...data.prices) : null,
+    });
+  }
+
+  sectionBreakdown.sort((a, b) => (a.getInPrice ?? 999999) - (b.getInPrice ?? 999999));
+
+  return {
+    totalTicketsRemaining: totalRemaining > 0 ? totalRemaining : null,
+    estimatedCapacity: null, // Set externally from ticketdata or manual entry
+    soldOutSections,
+    soldPercentage: null, // Requires capacity
+    sectionBreakdown,
   };
 }
 
