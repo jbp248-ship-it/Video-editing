@@ -27,9 +27,9 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 from config import PipelineConfig
-from pipeline import process_video
+# Heavy imports (pipeline, study_engine) are deferred to first use to speed up startup.
+# pipeline imports whisper, torch, moviepy; study_engine imports transformers/BART.
 from notes_store import get_note, update_note_cache, save_note, get_all_notes, get_dates_with_notes, get_notes_by_date
-from study_engine import generate_structured_summary, generate_study_guide, generate_quiz, compile_notes
 from study_templates import NOTES_PAGE_HTML, STUDY_UI_CSS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -55,8 +55,21 @@ def _validate_uuid(val):
         return False
 
 
-def _run_study_job(job_id, func, note_id, field):
+def _get_study_func(name):
+    """Lazy-import study_engine functions by name to avoid heavy imports at startup."""
+    from study_engine import generate_structured_summary, generate_study_guide, generate_quiz, compile_notes
+    mapping = {
+        "generate_structured_summary": generate_structured_summary,
+        "generate_study_guide": generate_study_guide,
+        "generate_quiz": generate_quiz,
+        "compile_notes": compile_notes,
+    }
+    return mapping[name]
+
+
+def _run_study_job(job_id, func_name, note_id, field):
     try:
+        func = _get_study_func(func_name)
         note = get_note(note_id)
         result = func(note["raw_content"])
         update_note_cache(note_id, field, result)
@@ -662,6 +675,28 @@ HTML_TEMPLATE = """
 """
 
 
+# ── Health & Preload Routes ────────────────────────────────────────────
+
+
+@app.route("/health")
+def health():
+    """Health check endpoint for Electron wrapper to know Flask is ready."""
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/preload-models", methods=["POST"])
+def preload_models():
+    """Trigger background loading of AI models so they're ready when needed."""
+    def _preload():
+        try:
+            from pipeline import process_video  # triggers whisper, moviepy imports
+            from study_engine import _get_pipeline  # triggers BART model load
+        except Exception as e:
+            logger.warning("Model preload failed: %s", e)
+    threading.Thread(target=_preload, daemon=True).start()
+    return jsonify({"status": "preloading"})
+
+
 # ── Routes ──────────────────────────────────────────────────────────────
 
 
@@ -776,7 +811,8 @@ def _run_pipeline(job_id: str):
 
         pipeline_mod.logger.info = tracking_info
 
-        # Run it
+        # Run it (lazy import — process_video triggers heavy whisper/torch/moviepy loads)
+        from pipeline import process_video
         output_paths = process_video(video_path, config)
 
         # Gather results
@@ -922,7 +958,7 @@ def api_summarize(note_id):
         job_id = str(uuid.uuid4())
         with _study_jobs_lock:
             _study_jobs[job_id] = {"status": "pending"}
-        t = threading.Thread(target=_run_study_job, args=(job_id, generate_structured_summary, note_id, "summary"))
+        t = threading.Thread(target=_run_study_job, args=(job_id, "generate_structured_summary", note_id, "summary"))
         t.daemon = True
         t.start()
         return jsonify({"job_id": job_id, "status": "pending"})
@@ -946,7 +982,7 @@ def api_study_guide(note_id):
         job_id = str(uuid.uuid4())
         with _study_jobs_lock:
             _study_jobs[job_id] = {"status": "pending"}
-        t = threading.Thread(target=_run_study_job, args=(job_id, generate_study_guide, note_id, "study_guide"))
+        t = threading.Thread(target=_run_study_job, args=(job_id, "generate_study_guide", note_id, "study_guide"))
         t.daemon = True
         t.start()
         return jsonify({"job_id": job_id, "status": "pending"})
@@ -970,7 +1006,7 @@ def api_quiz(note_id):
         job_id = str(uuid.uuid4())
         with _study_jobs_lock:
             _study_jobs[job_id] = {"status": "pending"}
-        t = threading.Thread(target=_run_study_job, args=(job_id, generate_quiz, note_id, "quiz"))
+        t = threading.Thread(target=_run_study_job, args=(job_id, "generate_quiz", note_id, "quiz"))
         t.daemon = True
         t.start()
         return jsonify({"job_id": job_id, "status": "pending"})
@@ -1010,6 +1046,7 @@ def api_compile():
                 notes_list.append({"date": d, "content": n["raw_content"], "title": n.get("title", "")})
         if not notes_list:
             return jsonify({"error": "No notes found for selected dates"}), 404
+        from study_engine import compile_notes
         compiled = compile_notes(notes_list)
         return jsonify({"compiled": compiled})
     except Exception as e:
@@ -1036,6 +1073,17 @@ def api_save_note():
 # ── Main ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import argparse
+    import webbrowser
+
+    parser = argparse.ArgumentParser(description="TikTok Video Clipper web server")
+    parser.add_argument("--port", type=int,
+                        default=int(os.environ.get("PORT", os.environ.get("FLASK_PORT", 5000))),
+                        help="Port to listen on (default: 5000, or PORT/FLASK_PORT env var)")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="Don't auto-open the browser (used by Electron wrapper)")
+    args = parser.parse_args()
+
     Path(app.config["UPLOAD_FOLDER"]).mkdir(exist_ok=True)
     Path("output").mkdir(exist_ok=True)
 
@@ -1046,13 +1094,17 @@ if __name__ == "__main__":
     print()
     print("  Open this on your phone or computer:")
     print()
-    print("  http://localhost:5000")
+    print(f"  http://localhost:{args.port}")
     print()
     print("  On your phone (same WiFi network):")
-    print("  http://<your-computer-ip>:5000")
+    print(f"  http://<your-computer-ip>:{args.port}")
     print()
     print("  Press Ctrl+C to stop")
     print("=" * 50)
     print()
 
-    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
+    if not args.no_browser:
+        # Open browser after a short delay so the server has time to start
+        threading.Timer(1.5, webbrowser.open, args=[f"http://localhost:{args.port}"]).start()
+
+    app.run(host="0.0.0.0", port=args.port, debug=False, threaded=True)

@@ -1,0 +1,59 @@
+appId: com.ticketops.desktop
+productName: TicketOps
+copyright: Copyright © 2026 TicketOps
+
+directories:
+  output: dist
+  buildResources: assets
+
+files:
+  - "**/*"
+  - "!dist/**"
+
+extraResources:
+  - from: "../"
+    to: "backend"
+    filter:
+      - "**/*.py"
+      - "requirements.txt"
+      - "templates/**"
+      - "static/**"
+      - "!__pycache__/**"
+      - "!*.pyc"
+      - "!venv/**"
+      - "!.venv/**"
+      - "!uploads/**"
+      - "!output/**"
+      - "!dist/**"
+      - "!desktop/**"
+
+mac:
+  category: public.app-category.video
+  icon: assets/icon.svg
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+win:
+  icon: assets/icon.svg
+  target:
+    - nsis
+    - portable
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+
+linux:
+  icon: assets/icon.svg
+  category: AudioVideo
+  target:
+    - AppImage
+    - deb
+  desktop:
+    StartupWMClass: ticketops-desktop

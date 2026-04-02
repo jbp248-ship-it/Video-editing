@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TicketOps</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+    color: #fff;
+    overflow: hidden;
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  .container {
+    text-align: center;
+    animation: fadeIn 0.6s ease-out;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ---- Logo / Icon ---- */
+  .logo {
+    width: 72px;
+    height: 72px;
+    margin: 0 auto 28px;
+    position: relative;
+  }
+
+  .logo svg {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 0 18px rgba(124, 77, 255, 0.45));
+  }
+
+  /* ---- App title ---- */
+  .title {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    margin-bottom: 6px;
+    background: linear-gradient(90deg, #a78bfa, #7c4dff, #448aff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    font-size: 12px;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: 40px;
+  }
+
+  /* ---- Spinner ---- */
+  .spinner-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 24px;
+  }
+
+  .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    border-top-color: #7c4dff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ---- Status text ---- */
+  .status {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.6);
+    transition: opacity 0.3s ease;
+    min-height: 20px;
+  }
+
+  .status.error {
+    color: #ff5252;
+  }
+
+  /* Subtle moving gradient on background */
+  body::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%;
+    width: 200%; height: 200%;
+    background: radial-gradient(circle at 30% 40%, rgba(124,77,255,0.08) 0%, transparent 60%),
+                radial-gradient(circle at 70% 60%, rgba(68,138,255,0.06) 0%, transparent 50%);
+    animation: drift 8s ease-in-out infinite alternate;
+    pointer-events: none;
+  }
+
+  @keyframes drift {
+    from { transform: translate(0, 0); }
+    to   { transform: translate(-3%, 2%); }
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="6" y="10" width="52" height="38" rx="6" stroke="#7c4dff" stroke-width="3"/>
+        <polygon points="26,20 26,38 42,29" fill="#7c4dff" opacity="0.9"/>
+        <rect x="14" y="50" width="36" height="4" rx="2" fill="#7c4dff" opacity="0.4"/>
+      </svg>
+    </div>
+    <div class="title">TicketOps</div>
+    <div class="subtitle">Video Clipper</div>
+    <div class="spinner-wrap"><div class="spinner"></div></div>
+    <div class="status" id="status">Starting up...</div>
+  </div>
+
+  <script>
+    const status = document.getElementById('status');
+
+    // Phase messages
+    setTimeout(() => {
+      if (!status.classList.contains('error')) {
+        status.textContent = 'Almost ready...';
+      }
+    }, 3000);
+
+    setTimeout(() => {
+      if (!status.classList.contains('error')) {
+        status.textContent = 'Warming up the engine...';
+      }
+    }, 7000);
+
+    // Listen for error messages from main process
+    if (window.ticketops) {
+      window.ticketops.onBackendError((msg) => {
+        status.textContent = msg;
+        status.classList.add('error');
+      });
+    }
+  </script>
+</body>
+</html>
