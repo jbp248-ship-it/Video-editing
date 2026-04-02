@@ -15,6 +15,9 @@ contextBridge.exposeInMainWorld('ticketops', {
   minimize: () => ipcRenderer.send('window:minimize'),
   maximize: () => ipcRenderer.send('window:maximize'),
 
+  // Updates
+  checkForUpdates: () => ipcRenderer.invoke('app:check-updates'),
+
   // Notifications from main process
   onBackendStatus: (callback) => {
     ipcRenderer.on('backend:status', (_event, status) => callback(status));

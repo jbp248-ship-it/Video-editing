@@ -205,6 +205,11 @@ function createTray() {
     },
     { type: 'separator' },
     {
+      label: 'Check for Updates...',
+      click: () => checkForUpdates(),
+    },
+    { type: 'separator' },
+    {
       label: 'Quit',
       click: () => {
         isQuitting = true;
@@ -330,10 +335,103 @@ function sendSplashError(message) {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-update
+// ---------------------------------------------------------------------------
+
+/**
+ * Check for updates by querying the Flask backend.
+ * If an update is available, show a native dialog and let the user decide.
+ */
+async function checkForUpdates() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const req = http.get(
+        `http://127.0.0.1:${flaskPort}/api/check-update`,
+        (res) => {
+          let body = '';
+          res.on('data', (chunk) => (body += chunk));
+          res.on('end', () => {
+            try {
+              resolve(JSON.parse(body));
+            } catch (e) {
+              reject(e);
+            }
+          });
+        },
+      );
+      req.on('error', reject);
+      req.setTimeout(10000, () => {
+        req.destroy();
+        reject(new Error('Timeout'));
+      });
+    });
+
+    if (!data.update_available) return;
+
+    const { response } = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'TicketOps Update Available',
+      message: `A new version is available (${data.commits_behind} commits behind). Would you like to update now?`,
+      buttons: ['Update Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+
+    if (response !== 0) return;
+
+    // POST /api/update
+    await httpPost(`http://127.0.0.1:${flaskPort}/api/update`);
+
+    // POST /api/restart
+    await httpPost(`http://127.0.0.1:${flaskPort}/api/restart`);
+
+    // Wait for Flask to come back up, then reload the window.
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.reload();
+    }
+  } catch (err) {
+    console.error('[TicketOps] Update check failed:', err.message);
+  }
+}
+
+/**
+ * Simple helper to send an HTTP POST with no body.
+ */
+function httpPost(url) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const req = http.request(
+      { hostname: urlObj.hostname, port: urlObj.port, path: urlObj.pathname, method: 'POST' },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => (body += chunk));
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            resolve(body);
+          }
+        });
+      },
+    );
+    req.on('error', reject);
+    req.setTimeout(30000, () => {
+      req.destroy();
+      reject(new Error('Timeout'));
+    });
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
 // IPC handlers
 // ---------------------------------------------------------------------------
 
 ipcMain.handle('app:get-version', () => app.getVersion());
+ipcMain.handle('app:check-updates', () => checkForUpdates());
 ipcMain.on('app:quit', () => {
   isQuitting = true;
   app.quit();
@@ -378,6 +476,9 @@ app.whenReady().then(async () => {
 
   // 6. Show the main window.
   createMainWindow();
+
+  // 7. Check for updates in the background.
+  checkForUpdates();
 });
 
 app.on('activate', () => {

@@ -31,6 +31,7 @@ from config import PipelineConfig
 # pipeline imports whisper, torch, moviepy; study_engine imports transformers/BART.
 from notes_store import get_note, update_note_cache, save_note, get_all_notes, get_dates_with_notes, get_notes_by_date
 from study_templates import NOTES_PAGE_HTML, STUDY_UI_CSS
+from version import __version__
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2GB max upload
 app.config["UPLOAD_FOLDER"] = "uploads"
+app.config["VERSION"] = __version__
 
 # Track processing jobs
 jobs = {}
@@ -695,6 +697,57 @@ def preload_models():
             logger.warning("Model preload failed: %s", e)
     threading.Thread(target=_preload, daemon=True).start()
     return jsonify({"status": "preloading"})
+
+
+# ── Update Routes ────────────────────────────────────────────────────────
+
+
+@app.route("/api/version")
+def api_version():
+    """Return current app version and build info."""
+    from version import __version__, __build_date__
+    from updater import get_current_info
+    info = get_current_info()
+    return jsonify({
+        "version": __version__,
+        "build_date": __build_date__,
+        **info,
+    })
+
+
+@app.route("/api/check-update")
+def api_check_update():
+    """Check if a newer version is available on GitHub."""
+    from updater import check_for_updates
+    result = check_for_updates()
+    return jsonify(result)
+
+
+@app.route("/api/changelog")
+def api_changelog():
+    """Get list of new commits available."""
+    from updater import get_changelog
+    return jsonify({"commits": get_changelog()})
+
+
+@app.route("/api/update", methods=["POST"])
+def api_apply_update():
+    """Pull the latest code from GitHub."""
+    from updater import apply_update
+    result = apply_update()
+    return jsonify(result)
+
+
+@app.route("/api/restart", methods=["POST"])
+def api_restart():
+    """Restart the Flask server to apply updates."""
+    import sys
+    def _restart():
+        import time
+        time.sleep(1)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    threading.Thread(target=_restart, daemon=True).start()
+    return jsonify({"status": "restarting"})
 
 
 # ── Routes ──────────────────────────────────────────────────────────────
