@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
       if (snaps.length < 3) continue;
 
       // Check for 3 consecutive floor price drops
-      const prices = snaps.slice(0, 3).map(s => s.getInPrice);
+      const prices = snaps.slice(0, 3).map((s: any) => s.getInPrice);
       const isDropping = prices[0] < prices[1] && prices[1] < prices[2];
 
       if (isDropping && event.inventory.length > 0) {
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
             data: {
               type: "FLOOR_DROP",
               title: `⚠️ Floor price dropping: ${event.name}`,
-              message: `Floor price has dropped ${dropPct}% over the last 3 snapshots (${prices.map(p => "$" + p.toFixed(0)).join(" → ")}). Consider liquidating to minimize losses.`,
+              message: `Floor price has dropped ${dropPct}% over the last 3 snapshots (${prices.map((p: any) => "$" + p.toFixed(0)).join(" → ")}). Consider liquidating to minimize losses.`,
               eventId: event.id,
             },
           });

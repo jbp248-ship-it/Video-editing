@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     });
 
     const result = sales
-      .map((sale) => {
+      .map((sale: any) => {
         if (!sale.inventory?.event) return null;
 
         const costBasis = sale.inventory.purchasePrice * sale.quantitySold;

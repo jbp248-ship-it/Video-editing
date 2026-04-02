@@ -26,8 +26,8 @@ export async function GET(req: NextRequest) {
     });
 
     const velocityData = events
-      .filter((e) => e.marketSnapshots.length >= 2)
-      .map((event) => {
+      .filter((e: any) => e.marketSnapshots.length >= 2)
+      .map((event: any) => {
         const snaps = event.marketSnapshots;
         const first = snaps[0];
         const last = snaps[snaps.length - 1];
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
         else if (velocityPerDay < 1) demandLevel = "LOW";
 
         // Snapshot timeline for chart
-        const timeline = snaps.map((s) => ({
+        const timeline = snaps.map((s: any) => ({
           date: s.capturedAt,
           listings: s.totalListings ?? 0,
           getInPrice: s.getInPrice,
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
           velocityPerDay: Math.round(velocityPerDay * 10) / 10,
           daysToSellout: daysToSellout ? Math.round(daysToSellout) : null,
           demandLevel,
-          ticketsHeld: event.inventory.reduce((s, i) => s + i.quantity, 0),
+          ticketsHeld: event.inventory.reduce((s: number, i: any) => s + i.quantity, 0),
           currentFloor: last.getInPrice,
           priceChange: first.getInPrice > 0
             ? Math.round(((last.getInPrice - first.getInPrice) / first.getInPrice) * 10000) / 100
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
           timeline,
         };
       })
-      .sort((a, b) => b.velocityPerDay - a.velocityPerDay);
+      .sort((a: any, b: any) => b.velocityPerDay - a.velocityPerDay);
 
     return NextResponse.json(velocityData);
   } catch {
