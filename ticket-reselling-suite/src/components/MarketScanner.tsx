@@ -469,12 +469,13 @@ export function MarketScanner() {
                     <th className="px-4 py-3 font-semibold text-right">Price</th>
                     <th className="px-4 py-3 font-semibold text-right">Qty</th>
                     <th className="px-4 py-3 font-semibold text-right">Fees</th>
+                    <th className="px-4 py-3 font-semibold text-right">Remaining</th>
                   </tr>
                 </thead>
                 <tbody>
                   {result.listings.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-4 py-12 text-center">
+                      <td colSpan={6} className="px-4 py-12 text-center">
                         <p className="text-sm font-medium" style={{ color: "#8C8680" }}>
                           No listings found
                         </p>
@@ -527,6 +528,25 @@ export function MarketScanner() {
                                 }}
                               >
                                 {formatCurrency(fees)}
+                              </span>
+                            ) : (
+                              <span style={{ color: "#C4BBB0" }}>&mdash;</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono">
+                            {listing.ticketsRemaining != null ? (
+                              <span
+                                style={{
+                                  color:
+                                    listing.ticketsRemaining > 50
+                                      ? "#16a34a"
+                                      : listing.ticketsRemaining >= 10
+                                        ? "#d97706"
+                                        : "#dc2626",
+                                  fontWeight: listing.ticketsRemaining < 10 ? 600 : 400,
+                                }}
+                              >
+                                {listing.ticketsRemaining}
                               </span>
                             ) : (
                               <span style={{ color: "#C4BBB0" }}>&mdash;</span>

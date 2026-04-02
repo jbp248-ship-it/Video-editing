@@ -224,6 +224,9 @@ function injectCaptureScript(wc) {
           o.RawPrice !== undefined || o.rawPrice !== undefined ||
           o.DisplayPrice !== undefined || o.displayPrice !== undefined ||
           o.PriceWithFees !== undefined || o.priceWithFees !== undefined ||
+          o.ticketPrice !== undefined || o.listPrice !== undefined ||
+          o.currentPrice !== undefined || o.buyerPrice !== undefined ||
+          o.faceValue !== undefined || o.totalPrice !== undefined ||
           (o.price !== undefined && (o.section !== undefined || o.Section !== undefined)) ||
           (o.Price !== undefined && (o.Section !== undefined || o.Row !== undefined))
         );
@@ -242,7 +245,8 @@ function injectCaptureScript(wc) {
               section: String(obj.Section || obj.section || obj.SectionName || obj.sectionName || ''),
               row: String(obj.Row || obj.row || obj.RowName || obj.rowName || ''),
               quantity: toNum(obj.MaxQuantity || obj.Quantity || obj.quantity) || 1,
-              priceWithFees: toNum(obj.PriceWithFees || obj.priceWithFees || obj.allInPrice) || null
+              priceWithFees: toNum(obj.PriceWithFees || obj.priceWithFees || obj.allInPrice) || null,
+              ticketsRemaining: toNum(obj.ticketsRemaining) || toNum(obj.remaining) || toNum(obj.availableCount) || toNum(obj.available) || toNum(obj.quantityRemaining) || null
             });
             return results;
           }
@@ -337,7 +341,9 @@ function injectCaptureScript(wc) {
                 var ct = card ? card.textContent : '';
                 var sm = ct.match(/Section\\s+(\\S+)/i);
                 var rm = ct.match(/Row\\s+(\\S+)/i);
-                domListings.push({ price: p, section: sm?sm[1]:'', row: rm?rm[1]:'', quantity: 1, priceWithFees: null });
+                var remainMatch = ct.match(/(?:remaining|left|available)[:\\s]*(\\d+)/i);
+                var ticketsRem = remainMatch ? parseInt(remainMatch[1], 10) : null;
+                domListings.push({ price: p, section: sm?sm[1]:'', row: rm?rm[1]:'', quantity: 1, priceWithFees: null, ticketsRemaining: ticketsRem });
               }
             }
           }
@@ -351,7 +357,9 @@ function injectCaptureScript(wc) {
               if (p > 4 && p < 100000) {
                 var sm = label.match(/(?:Section|Sec)\\.?\\s+(\\S+)/i);
                 var rm = label.match(/Row\\s+(\\S+)/i);
-                domListings.push({ price: p, section: sm?sm[1]:'', row: rm?rm[1]:'', quantity: 1, priceWithFees: null });
+                var remMatch = label.match(/(?:remaining|left|available)[:\\s]*(\\d+)/i);
+                var ticketsRem = remMatch ? parseInt(remMatch[1], 10) : null;
+                domListings.push({ price: p, section: sm?sm[1]:'', row: rm?rm[1]:'', quantity: 1, priceWithFees: null, ticketsRemaining: ticketsRem });
               }
             }
           });
@@ -379,13 +387,24 @@ function injectCaptureScript(wc) {
           });
           captured.listings = unique;
 
+          // Compute totalTicketsRemaining from captured listings
+          var totalRemaining = 0;
+          var hasRemaining = false;
+          for (var r = 0; r < unique.length; r++) {
+            if (unique[r].ticketsRemaining != null) {
+              totalRemaining += unique[r].ticketsRemaining;
+              hasRemaining = true;
+            }
+          }
+
           // Store in window variable — safe, no referrer/history leakage
           window.__ticketOpsData = {
             platform: captured.platform,
             eventName: captured.eventName.replace(/(\\s*[-|]\\s*(StubHub|Ticketmaster|Vivid|SeatGeek|Etix).*$)/i, '').trim(),
             url: location.href,
             listings: unique.slice(0, 500),
-            count: unique.length
+            count: unique.length,
+            totalTicketsRemaining: hasRemaining ? totalRemaining : null
           };
         }, 1000);
       }
