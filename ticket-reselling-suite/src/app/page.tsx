@@ -32,6 +32,7 @@ function SettingsPanel() {
   const [savedKeys, setSavedKeys] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -64,8 +65,8 @@ function SettingsPanel() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setSavedKeys((s) => ({ ...s, [key]: true }));
       setTimeout(() => setSavedKeys((s) => ({ ...s, [key]: false })), 2000);
-    } catch {
-      // silently ignore — user can retry
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save setting");
     } finally {
       setSaving((s) => ({ ...s, [key]: false }));
     }
@@ -81,6 +82,11 @@ function SettingsPanel() {
       {loadError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           Could not load saved settings: {loadError}
+        </div>
+      )}
+      {saveError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Could not save setting: {saveError}
         </div>
       )}
       <div className="space-y-3">
@@ -332,7 +338,7 @@ export default function DashboardPage() {
           {activeTab === "inventory" && (
             <>
               <div className="flex items-center gap-3 mb-4">
-                {["ALL", "IN_HAND", "LISTED", "PENDING_REMOVAL", "SOLD"].map(
+                {["ALL", "IN_HAND", "LISTED", "PENDING_REMOVAL", "SOLD", "TRANSFERRED", "EXPIRED"].map(
                   (s) => (
                     <button
                       key={s}
