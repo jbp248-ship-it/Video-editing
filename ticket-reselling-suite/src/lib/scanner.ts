@@ -10,7 +10,7 @@
  * This runs server-side in the Next.js API route, NOT in the browser.
  */
 
-import { chromium, type Browser, type Page } from "playwright";
+import type { Browser, Page } from "playwright";
 
 export interface ScanListing {
   section: string;
@@ -44,6 +44,7 @@ async function getBrowser(): Promise<Browser> {
   if (browserInstance && browserInstance.isConnected()) {
     return browserInstance;
   }
+  const { chromium } = await import("playwright");
   browserInstance = await chromium.launch({
     headless: true,
     args: [
