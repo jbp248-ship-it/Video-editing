@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 
 interface FlareEvent {
   eventId: string;
@@ -405,9 +405,8 @@ export function FlareScreener() {
                   const isExpanded = expandedId === event.eventId;
 
                   return (
-                    <>
+                    <Fragment key={event.eventId}>
                       <tr
-                        key={event.eventId}
                         className={`border-b border-warm-100 hover:bg-warm-50 transition-colors cursor-pointer ${
                           i % 2 === 0 ? "" : "bg-warm-50/40"
                         } ${isExpanded ? "bg-amber-50/40" : ""}`}
@@ -458,9 +457,9 @@ export function FlareScreener() {
                         </td>
                       </tr>
                       {isExpanded && (
-                        <BreakdownRow key={`${event.eventId}-detail`} event={event} />
+                        <BreakdownRow event={event} />
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>

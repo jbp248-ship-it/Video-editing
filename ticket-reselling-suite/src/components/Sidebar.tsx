@@ -175,20 +175,6 @@ export function Sidebar({ activeTab, onTabChange, alertCount }: SidebarProps) {
                   {item.label}
                 </span>
               )}
-
-              {/* Alert badge */}
-              {item.id === "alerts" && alertCount > 0 && (
-                <span
-                  className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white leading-none"
-                  style={{
-                    backgroundColor: "#DC2626",
-                    minWidth: "18px",
-                    textAlign: "center",
-                  }}
-                >
-                  {alertCount > 99 ? "99+" : alertCount}
-                </span>
-              )}
             </button>
           );
         })}
