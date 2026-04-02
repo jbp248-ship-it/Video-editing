@@ -244,6 +244,18 @@ const TAB_TITLES: Record<string, string> = {
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("dashboard");
+
+  // Auto-close browser when switching away from browse/market tabs
+  const handleTabChange = useCallback((tab: string) => {
+    // Close BrowserView if leaving a tab that uses it
+    if (activeTab !== tab) {
+      try {
+        const w = window as any;
+        w.ticketOps?.closeBrowser?.();
+      } catch {}
+    }
+    setActiveTab(tab);
+  }, [activeTab]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [inventory, setInventory] = useState<any[]>([]);
@@ -366,7 +378,7 @@ export default function DashboardPage() {
     <div className="flex h-screen overflow-hidden bg-warm-50">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         alertCount={alertCount}
       />
 
@@ -384,7 +396,7 @@ export default function DashboardPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-            <button className="btn-primary" onClick={() => setActiveTab("inventory")}>+ Add Tickets</button>
+            <button className="btn-primary" onClick={() => handleTabChange("inventory")}>+ Add Tickets</button>
           </div>
         </header>
 
@@ -411,7 +423,7 @@ export default function DashboardPage() {
               inventory={inventory}
               alerts={alerts}
               onRecordSale={handleRecordSale}
-              onNavigate={setActiveTab}
+              onNavigate={handleTabChange}
               onDismissAlerts={handleDismissAlerts}
               onMarkRead={handleMarkRead}
             />
