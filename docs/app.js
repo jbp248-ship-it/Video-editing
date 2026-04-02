@@ -334,7 +334,7 @@ function openStudyMode(cn) {
   const sel = cn.filter(n => { const d = new Date(n.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }); return selectedDays.has(d); }).sort((a, b) => new Date(a.date) - new Date(b.date));
   let allText = "";
   let h = `<div class="detail-hdr"><h2>Study Mode — ${selectedDays.size} Day${selectedDays.size > 1 ? "s" : ""}</h2>
-    <div class="detail-actions"><button class="btn" id="backStudy">&larr; Back</button><button class="btn btn-pri" id="copyStudy">Copy All Text</button><button class="btn" id="exportStudy">Export .md</button></div></div>`;
+    <div class="detail-actions"><button class="btn" id="backStudy">&larr; Back</button><button class="btn btn-pri" id="copyStudy">Copy All Text</button><button class="btn" id="exportStudy">Export .md</button><button class="btn" id="mergeClean">Merge &amp; Clean</button><button class="btn btn-pri" id="studyGuideBtn">Generate Study Guide</button></div></div>`;
   sel.forEach(n => {
     const day = new Date(n.date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
     allText += `\n## ${n.title} (${day})\n\n`;
@@ -347,6 +347,29 @@ function openStudyMode(cn) {
   $("backStudy").onclick = () => renderCourseNotes();
   $("copyStudy").onclick = () => { navigator.clipboard.writeText(allText.trim()).then(() => { $("copyStudy").textContent = "Copied!"; setTimeout(() => $("copyStudy").textContent = "Copy All Text", 2000); }); };
   $("exportStudy").onclick = () => { const b = new Blob([`# Study Notes\n${allText}`], { type: "text/markdown" }); const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `study-${activeCourse}.md`; a.click(); };
+  $("mergeClean").onclick = () => {
+    const result = buildMasterTranscript(sel, { deduplicate: true, includeHeaders: true });
+    const clean = cleanTranscript(result.mergedText);
+    navigator.clipboard.writeText(clean).then(() => {
+      $("mergeClean").textContent = "Merged & Copied!";
+      setTimeout(() => $("mergeClean").textContent = "Merge & Clean", 2000);
+    });
+  };
+  $("studyGuideBtn").onclick = () => {
+    const result = buildMasterTranscript(sel, { deduplicate: true });
+    const clean = cleanTranscript(result.mergedText);
+    const guide = generateStudyGuide(clean, activeCourse + " — Study Guide");
+    // Replace content with the study guide
+    const div = document.createElement("div");
+    div.className = "summary-box";
+    div.innerHTML = "<h3>Study Guide</h3><pre style='white-space:pre-wrap;font-family:inherit'>" + esc(guide) + "</pre><br><button class='btn btn-pri' id='copyGuide'>Copy Study Guide</button>";
+    ct.appendChild(div);
+    document.getElementById("copyGuide").onclick = () => {
+      navigator.clipboard.writeText(guide).then(() => {
+        document.getElementById("copyGuide").textContent = "Copied!";
+      });
+    };
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -378,6 +401,7 @@ function renderDetail() {
     <div class="detail-actions">
       <button class="btn btn-pri" id="copyAll">Copy Transcript</button>
       <button class="btn" id="sumBtn">Summarize</button>
+      <button class="btn" id="guideBtn">Study Guide</button>
       <button class="btn" id="exp">Export .md</button>
       <button class="btn btn-dng" id="del">Delete</button>
     </div></div>
@@ -385,8 +409,8 @@ function renderDetail() {
 
   $("copyAll").onclick = () => {
     const text = n.chunks?.length
-      ? n.chunks.map(c => `[${fmt(c.time)}] ${c.text}`).join("\n")
-      : n.transcript || "";
+      ? getCleanCopyText(n.chunks)
+      : cleanTranscript(n.transcript || "");
     navigator.clipboard.writeText(text).then(() => {
       $("copyAll").textContent = "Copied!";
       setTimeout(() => $("copyAll").textContent = "Copy Transcript", 2000);
@@ -395,6 +419,17 @@ function renderDetail() {
   $("exp").onclick = () => exportMd(n);
   $("del").onclick = async () => { if (confirm("Delete?")) { await delNote(n.id); await reload(); navigate("course", activeCourse); } };
   $("sumBtn").onclick = () => summarize(n);
+  $("guideBtn").onclick = () => {
+    const clean = cleanTranscript(n.transcript || "");
+    const guide = generateStudyGuide(clean, n.title);
+    // Show in a new section below the transcript
+    const existing = document.querySelector(".guide-box");
+    if (existing) existing.remove();
+    const div = document.createElement("div");
+    div.className = "summary-box guide-box";
+    div.innerHTML = "<h3>Study Guide</h3>" + esc(guide).replace(/\n/g, "<br>");
+    ct.appendChild(div);
+  };
 }
 
 // Track how many lines are already rendered to avoid full re-renders
