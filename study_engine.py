@@ -267,6 +267,7 @@ def generate_structured_summary(notes_text: str) -> str:
 
     key = _cache_key(notes_text, "generate_structured_summary")
     if key in _cache:
+        _cache.move_to_end(key)
         return _cache[key]
 
     logger.info("Generating structured summary locally...")
@@ -340,6 +341,7 @@ def generate_study_guide(notes_text: str) -> str:
 
     key = _cache_key(notes_text, "generate_study_guide")
     if key in _cache:
+        _cache.move_to_end(key)
         return _cache[key]
 
     logger.info("Generating study guide locally...")
@@ -424,6 +426,7 @@ def compile_notes(notes_list: list[dict]) -> str:
 
     key = _cache_key("\n".join(dated_sections), "compile_notes")
     if key in _cache:
+        _cache.move_to_end(key)
         return _cache[key]
 
     logger.info("Compiling notes from %d days locally...", len(notes_list))
@@ -488,6 +491,7 @@ def generate_quiz(notes_text: str) -> dict:
 
     key = _cache_key(notes_text, "generate_quiz")
     if key in _cache:
+        _cache.move_to_end(key)
         return _cache[key]
 
     logger.info("Generating quiz locally (extractive TF-IDF)...")

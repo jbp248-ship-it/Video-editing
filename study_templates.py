@@ -723,6 +723,7 @@ function showQuizResults() {
 // ── Compile ─────────────────────────────────────────────────────────────
 
 async function compileNotes() {
+    if (_inFlight['compile']) return;
     const cbs = document.querySelectorAll('.compile-date-cb:checked');
     const dates = Array.from(cbs).map(cb => cb.value);
     if (dates.length < 1) {
@@ -730,16 +731,17 @@ async function compileNotes() {
         return;
     }
 
+    _inFlight['compile'] = true;
     document.getElementById('loading-compile').classList.add('show');
     document.getElementById('content-compile').style.display = 'none';
     document.getElementById('btn-compile').disabled = true;
 
     try {
-        const res = await fetch('/api/compile', {
+        const res = await fetchWithTimeout('/api/compile', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({dates})
-        });
+        }, 30000);
         const data = await res.json();
         if (data.error) throw new Error(data.error);
 
@@ -750,6 +752,7 @@ async function compileNotes() {
     } finally {
         document.getElementById('loading-compile').classList.remove('show');
         document.getElementById('btn-compile').disabled = false;
+        delete _inFlight['compile'];
     }
 }
 

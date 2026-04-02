@@ -30,6 +30,7 @@ from config import PipelineConfig
 from pipeline import process_video
 from notes_store import get_note, update_note_cache, save_note, get_all_notes, get_dates_with_notes, get_notes_by_date
 from study_engine import generate_structured_summary, generate_study_guide, generate_quiz, compile_notes
+from study_templates import NOTES_PAGE_HTML, STUDY_UI_CSS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ jobs = {}
 
 # Track async study jobs
 _study_jobs: dict = {}  # job_id -> {"status": "pending"|"done"|"error", "result": ..., "error": ...}
+_study_jobs_lock = threading.Lock()
 
 
 def _validate_uuid(val):
@@ -58,9 +60,11 @@ def _run_study_job(job_id, func, note_id, field):
         note = get_note(note_id)
         result = func(note["raw_content"])
         update_note_cache(note_id, field, result)
-        _study_jobs[job_id] = {"status": "done", "result": result}
+        with _study_jobs_lock:
+            _study_jobs[job_id] = {"status": "done", "result": result}
     except Exception as e:
-        _study_jobs[job_id] = {"status": "error", "error": str(e)}
+        with _study_jobs_lock:
+            _study_jobs[job_id] = {"status": "error", "error": str(e)}
 
 
 # ── HTML Template (single-page mobile-friendly app) ─────────────────────
@@ -899,11 +903,6 @@ def notes_page():
     except Exception:
         notes = []
         dates = []
-    # Import and render the notes page template
-    try:
-        from study_templates import NOTES_PAGE_HTML, STUDY_UI_CSS
-    except ImportError:
-        return "<h1>Study templates not found</h1>", 500
     return render_template_string(NOTES_PAGE_HTML, notes=notes, dates=dates, css=STUDY_UI_CSS)
 
 
@@ -921,7 +920,8 @@ def api_summarize(note_id):
             return jsonify({"summary": note["summary"], "cached": True})
         # Start background job
         job_id = str(uuid.uuid4())
-        _study_jobs[job_id] = {"status": "pending"}
+        with _study_jobs_lock:
+            _study_jobs[job_id] = {"status": "pending"}
         t = threading.Thread(target=_run_study_job, args=(job_id, generate_structured_summary, note_id, "summary"))
         t.daemon = True
         t.start()
@@ -944,7 +944,8 @@ def api_study_guide(note_id):
             return jsonify({"study_guide": note["study_guide"], "cached": True})
         # Start background job
         job_id = str(uuid.uuid4())
-        _study_jobs[job_id] = {"status": "pending"}
+        with _study_jobs_lock:
+            _study_jobs[job_id] = {"status": "pending"}
         t = threading.Thread(target=_run_study_job, args=(job_id, generate_study_guide, note_id, "study_guide"))
         t.daemon = True
         t.start()
@@ -967,7 +968,8 @@ def api_quiz(note_id):
             return jsonify({"quiz": note["quiz"], "cached": True})
         # Start background job
         job_id = str(uuid.uuid4())
-        _study_jobs[job_id] = {"status": "pending"}
+        with _study_jobs_lock:
+            _study_jobs[job_id] = {"status": "pending"}
         t = threading.Thread(target=_run_study_job, args=(job_id, generate_quiz, note_id, "quiz"))
         t.daemon = True
         t.start()
@@ -980,7 +982,8 @@ def api_quiz(note_id):
 @app.route("/api/job/<job_id>")
 def api_job_status(job_id):
     """Return the status and result of an async study job."""
-    job = _study_jobs.get(job_id)
+    with _study_jobs_lock:
+        job = _study_jobs.get(job_id)
     if job is None:
         return jsonify({"error": "Job not found"}), 404
     return jsonify(job)
