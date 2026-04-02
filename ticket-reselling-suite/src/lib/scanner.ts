@@ -18,6 +18,7 @@ export interface ScanListing {
   price: number;
   quantity: number;
   priceWithFees: number | null;
+  ticketsRemaining: number | null;
 }
 
 export interface ScanResult {
@@ -32,6 +33,7 @@ export interface ScanResult {
     averagePrice: number;
     maxPrice: number;
     totalListings: number;
+    totalTicketsRemaining: number | null;
   };
   scannedAt: string;
 }
@@ -88,6 +90,7 @@ export async function scanUrl(url: string): Promise<ScanResult> {
 
   // Intercept ALL network responses and look for ticket data.
   // Race with a 5s timeout to prevent hangs on huge responses.
+  const detectedPlatform = detectPlatform(url);
   page.on("response", async (response) => {
     try {
       const contentType = response.headers()["content-type"] ?? "";
@@ -98,7 +101,32 @@ export async function scanUrl(url: string): Promise<ScanResult> {
         setTimeout(() => reject(new Error("timeout")), 5000)
       );
       const body = await Promise.race([bodyPromise, timeoutPromise]);
-      const found = extractListingsFromJson(body);
+
+      // Try platform-specific JSON extractor first
+      let found: ScanListing[] = [];
+      try {
+        if (detectedPlatform === "ETIX") {
+          const { extractEtixFromJson } = await import("./scanners/etix");
+          found = extractEtixFromJson(body);
+        } else if (detectedPlatform === "TICKETMASTER") {
+          const { extractTicketmasterFromJson } = await import("./scanners/ticketmaster");
+          found = extractTicketmasterFromJson(body);
+        } else if (detectedPlatform === "VIVID_SEATS") {
+          const { extractVividSeatsFromJson } = await import("./scanners/vividseats");
+          found = extractVividSeatsFromJson(body);
+        } else if (detectedPlatform === "SEATGEEK") {
+          const { extractSeatGeekFromJson } = await import("./scanners/seatgeek");
+          found = extractSeatGeekFromJson(body);
+        }
+      } catch {
+        // Platform module not available yet — fall through to generic
+      }
+
+      // Fall back to generic extractor
+      if (found.length === 0) {
+        found = extractListingsFromJson(body);
+      }
+
       if (found.length > 0) {
         interceptedListings.push(...found);
       }
@@ -145,11 +173,57 @@ export async function scanUrl(url: string): Promise<ScanResult> {
       return { eventName, venue, date };
     });
 
+    // Platform-specific extraction (higher quality, degrades gracefully)
+    let platformListings: ScanListing[] = [];
+    let platformResult: { totalTicketsRemaining: number | null } = { totalTicketsRemaining: null };
+    const platform = detectPlatform(url);
+
+    try {
+      if (platform === "ETIX") {
+        const { extractEtixFromDom } = await import("./scanners/etix");
+        const domResult = await extractEtixFromDom(page);
+        platformListings = domResult.listings;
+        platformResult.totalTicketsRemaining = domResult.totalTicketsRemaining;
+        if (!eventInfo.eventName && domResult.eventName) eventInfo.eventName = domResult.eventName;
+        if (!eventInfo.venue && domResult.venue) eventInfo.venue = domResult.venue;
+        if (!eventInfo.date && domResult.date) eventInfo.date = domResult.date;
+      } else if (platform === "TICKETMASTER") {
+        const { extractTicketmasterFromDom } = await import("./scanners/ticketmaster");
+        const domResult = await extractTicketmasterFromDom(page);
+        platformListings = domResult.listings;
+        platformResult.totalTicketsRemaining = domResult.totalTicketsRemaining;
+        if (!eventInfo.eventName && domResult.eventName) eventInfo.eventName = domResult.eventName;
+        if (!eventInfo.venue && domResult.venue) eventInfo.venue = domResult.venue;
+        if (!eventInfo.date && domResult.date) eventInfo.date = domResult.date;
+      } else if (platform === "VIVID_SEATS") {
+        const { extractVividSeatsFromDom } = await import("./scanners/vividseats");
+        const domResult = await extractVividSeatsFromDom(page);
+        platformListings = domResult.listings;
+        platformResult.totalTicketsRemaining = domResult.totalTicketsRemaining;
+        if (!eventInfo.eventName && domResult.eventName) eventInfo.eventName = domResult.eventName;
+        if (!eventInfo.venue && domResult.venue) eventInfo.venue = domResult.venue;
+        if (!eventInfo.date && domResult.date) eventInfo.date = domResult.date;
+      } else if (platform === "SEATGEEK") {
+        const { extractSeatGeekFromDom } = await import("./scanners/seatgeek");
+        const domResult = await extractSeatGeekFromDom(page);
+        platformListings = domResult.listings;
+        platformResult.totalTicketsRemaining = domResult.totalTicketsRemaining;
+        if (!eventInfo.eventName && domResult.eventName) eventInfo.eventName = domResult.eventName;
+        if (!eventInfo.venue && domResult.venue) eventInfo.venue = domResult.venue;
+        if (!eventInfo.date && domResult.date) eventInfo.date = domResult.date;
+      }
+    } catch (err) {
+      console.error(`Platform-specific scanner failed for ${platform}:`, err);
+      // Falls through to generic extraction below
+    }
+
     // DOM-based price extraction as supplement
     const domListings = await extractFromDom(page);
 
     // Combine network + DOM results, deduplicate
+    // Platform-specific listings first (higher quality)
     const allListings = deduplicateListings([
+      ...platformListings,
       ...interceptedListings,
       ...domListings,
     ]);
@@ -207,6 +281,13 @@ function extractListingsFromJson(obj: unknown, depth = 0): ScanListing[] {
           toNumber(o.PriceWithFees) ??
           toNumber(o.priceWithFees) ??
           toNumber(o.allInPrice) ??
+          null,
+        ticketsRemaining:
+          toNumber(o.ticketsRemaining) ??
+          toNumber(o.remaining) ??
+          toNumber(o.availableCount) ??
+          toNumber(o.available) ??
+          toNumber(o.quantityRemaining) ??
           null,
       });
       return results;
