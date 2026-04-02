@@ -1,21 +1,22 @@
 # ──────────────────────────────────────────────────────────────
 # TicketOps — Common operations
 # ──────────────────────────────────────────────────────────────
-.PHONY: install run desktop package clean help
+.PHONY: install run start desktop package clean help
 
 PYTHON ?= python3
+FLASK_PORT ?= 5000
 
-help: ## Show this help
+help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-install: ## Install Python deps + desktop (npm) deps
+install: ## Install Python deps + Electron (npm) deps
 	$(PYTHON) build.py setup
 
-run: ## Run Flask directly (dev mode)
-	$(PYTHON) app.py
+run: ## Run Flask directly (development mode, port $(FLASK_PORT))
+	$(PYTHON) app.py --port $(FLASK_PORT)
 
-start: ## Launch via start.py (browser auto-opens)
+start: ## Launch via start.py (auto-finds port, opens browser)
 	$(PYTHON) start.py
 
 desktop: ## Launch Electron desktop app

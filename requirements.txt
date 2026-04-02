@@ -24,4 +24,4 @@ flask>=3.0.0
 tqdm>=4.65.0
 
 # Build & packaging (optional — only needed for creating .exe distributable)
-# pyinstaller>=6.0.0
+pyinstaller>=6.0.0
