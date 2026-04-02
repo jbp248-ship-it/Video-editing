@@ -2,17 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Sidebar } from "@/components/Sidebar";
-import { StatsGrid } from "@/components/StatsGrid";
 import { InventoryTable } from "@/components/InventoryTable";
 import { AlertPanel } from "@/components/AlertPanel";
-import { PriceTrendChart } from "@/components/PriceTrendChart";
-import { MarketScanner } from "@/components/MarketScanner";
-import { TicketBrowser } from "@/components/TicketBrowser";
 import { SalesHistory } from "@/components/SalesHistory";
-import { FlareScreener } from "@/components/FlareScreener";
-import { Analytics } from "@/components/Analytics";
 import { CSVImport } from "@/components/CSVImport";
-import { VelocityChart } from "@/components/VelocityChart";
+import { MarketIntel } from "@/components/MarketIntel";
+import { EnhancedDashboard } from "@/components/EnhancedDashboard";
 import type { DashboardStats } from "@/types";
 
 // ─── Platform fee defaults ────────────────────────────────────────────────────
@@ -128,7 +123,7 @@ function SettingsPanel() {
               disabled={saving[p.key]}
               onClick={() => handleSave(p.key)}
             >
-              {savedKeys[p.key] ? "Saved!" : saving[p.key] ? "Saving…" : "Save"}
+              {savedKeys[p.key] ? "Saved!" : saving[p.key] ? "Saving\u2026" : "Save"}
             </button>
           </div>
         ))}
@@ -136,6 +131,15 @@ function SettingsPanel() {
     </div>
   );
 }
+
+const TAB_TITLES: Record<string, string> = {
+  dashboard: "Dashboard",
+  market: "Market Intelligence",
+  inventory: "Inventory Management",
+  sales: "Sales & Profit/Loss",
+  alerts: "Alerts",
+  settings: "Settings",
+};
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("dashboard");
@@ -157,6 +161,7 @@ export default function DashboardPage() {
     qty: "1",
     platform: "STUBHUB",
   });
+  const [showImport, setShowImport] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -268,7 +273,7 @@ export default function DashboardPage() {
         {/* Top Bar */}
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-warm-200 bg-white/80 backdrop-blur px-6">
           <h1 className="text-lg font-semibold capitalize text-warm-900">
-            {activeTab === "market" ? "Market Scanner" : activeTab === "browse" ? "Browse Ticket Sites" : activeTab === "screener" ? "FLARE Screener" : activeTab === "analytics" ? "P&L Analytics" : activeTab === "import" ? "CSV Import" : activeTab === "velocity" ? "Supply/Demand Velocity" : activeTab}
+            {TAB_TITLES[activeTab] ?? activeTab}
           </h1>
           <div className="flex items-center gap-4">
             <input
@@ -298,120 +303,70 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Dashboard View */}
+          {/* Dashboard */}
           {activeTab === "dashboard" && (
-            <>
-              <StatsGrid stats={stats} />
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Alerts panel */}
-                <div className="lg:col-span-1">
-                  <h2 className="text-sm font-medium text-warm-500 mb-3">
-                    Active Alerts
-                  </h2>
-                  <AlertPanel
-                    alerts={alerts}
-                    onDismiss={handleDismissAlerts}
-                    onMarkRead={handleMarkRead}
-                  />
-                </div>
-
-                {/* Price trend */}
-                <div className="lg:col-span-2">
-                  <h2 className="text-sm font-medium text-warm-500 mb-3">
-                    Market Overview
-                  </h2>
-                  <PriceTrendChart data={snapshots} />
-                </div>
-              </div>
-
-              {/* Quick inventory view */}
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-medium text-warm-500">
-                    Active Inventory
-                  </h2>
-                  <button
-                    className="btn-ghost text-xs"
-                    onClick={() => setActiveTab("inventory")}
-                  >
-                    View All →
-                  </button>
-                </div>
-                <InventoryTable
-                  items={inventory}
-                  onRecordSale={handleRecordSale}
-                />
-              </div>
-            </>
-          )}
-
-          {/* Inventory View */}
-          {activeTab === "inventory" && (
-            <>
-              <div className="flex items-center gap-3 mb-4">
-                {["ALL", "IN_HAND", "LISTED", "PENDING_REMOVAL", "SOLD", "TRANSFERRED", "EXPIRED"].map(
-                  (s) => (
-                    <button
-                      key={s}
-                      className={
-                        inventoryFilter === s
-                          ? "btn-primary text-xs"
-                          : "btn-ghost text-xs"
-                      }
-                      onClick={() => setInventoryFilter(s)}
-                    >
-                      {s.replace(/_/g, " ")}
-                    </button>
-                  )
-                )}
-              </div>
-              <InventoryTable
-                items={
-                  (inventoryFilter === "ALL"
-                    ? inventory
-                    : inventory.filter((item: any) => item.status === inventoryFilter)
-                  ).filter((item: any) =>
-                    !searchQuery || item.event?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    item.section?.toLowerCase().includes(searchQuery.toLowerCase())
-                  )
-                }
-                onRecordSale={handleRecordSale}
-              />
-            </>
-          )}
-
-          {/* Sales View */}
-          {activeTab === "sales" && <SalesHistory />}
-
-          {/* Browse Sites View */}
-          {activeTab === "browse" && <TicketBrowser />}
-
-          {/* Market Scanner View */}
-          {activeTab === "market" && <MarketScanner />}
-
-          {/* Alerts View */}
-          {activeTab === "alerts" && (
-            <AlertPanel
+            <EnhancedDashboard
+              snapshots={snapshots}
+              inventory={inventory}
               alerts={alerts}
-              onDismiss={handleDismissAlerts}
+              onRecordSale={handleRecordSale}
+              onNavigate={setActiveTab}
+              onDismissAlerts={handleDismissAlerts}
               onMarkRead={handleMarkRead}
             />
           )}
 
-          {/* Supply/Demand Velocity View */}
-          {activeTab === "velocity" && <VelocityChart />}
+          {/* Market Intel (Browse + Scan + Velocity + FLARE) */}
+          {activeTab === "market" && <MarketIntel />}
 
-          {/* FLARE Screener View */}
-          {activeTab === "screener" && <FlareScreener />}
+          {/* Inventory */}
+          {activeTab === "inventory" && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  {["ALL", "IN_HAND", "LISTED", "PENDING_REMOVAL", "SOLD", "TRANSFERRED", "EXPIRED"].map((s) => (
+                    <button
+                      key={s}
+                      className={inventoryFilter === s ? "btn-primary text-xs" : "btn-ghost text-xs"}
+                      onClick={() => setInventoryFilter(s)}
+                    >
+                      {s.replace(/_/g, " ")}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="btn-ghost text-xs"
+                  onClick={() => setShowImport(!showImport)}
+                >
+                  {showImport ? "\u2190 Back to Inventory" : "\uD83D\uDCC4 Import CSV"}
+                </button>
+              </div>
+              {showImport ? (
+                <CSVImport />
+              ) : (
+                <InventoryTable
+                  items={(inventoryFilter === "ALL" ? inventory : inventory.filter((item: any) => item.status === inventoryFilter))
+                    .filter((item: any) => !searchQuery || item.event?.name?.toLowerCase().includes(searchQuery.toLowerCase()) || item.section?.toLowerCase().includes(searchQuery.toLowerCase()))
+                  }
+                  onRecordSale={handleRecordSale}
+                />
+              )}
+            </>
+          )}
 
-          {/* P&L Analytics View */}
-          {activeTab === "analytics" && <Analytics />}
+          {/* Sales & P/L */}
+          {activeTab === "sales" && (
+            <div className="space-y-6">
+              <SalesHistory />
+            </div>
+          )}
 
-          {/* CSV Import View */}
-          {activeTab === "import" && <CSVImport />}
+          {/* Alerts (accessible from bell icon) */}
+          {activeTab === "alerts" && (
+            <AlertPanel alerts={alerts} onDismiss={handleDismissAlerts} onMarkRead={handleMarkRead} />
+          )}
 
-          {/* Settings View */}
+          {/* Settings */}
           {activeTab === "settings" && <SettingsPanel />}
         </div>
       </main>
