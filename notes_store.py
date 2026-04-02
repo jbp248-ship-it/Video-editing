@@ -10,7 +10,7 @@ import logging
 import os
 import threading
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,26 @@ _NOTES_FILE = os.path.join(_DATA_DIR, "notes.json")
 _CACHEABLE_FIELDS = {"summary", "study_guide", "quiz"}
 
 _lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# In-memory index (populated on first load, invalidated on every write)
+# Bug 2 fix: O(1) lookups instead of O(n) linear scans
+# ---------------------------------------------------------------------------
+
+_index: dict[str, dict] = {}   # note_id -> note dict
+_index_valid = False
+
+
+def _invalidate_index() -> None:
+    global _index_valid
+    _index_valid = False
+
+
+def _ensure_index(notes: list[dict]) -> None:
+    global _index, _index_valid
+    if not _index_valid:
+        _index = {n["id"]: n for n in notes if n.get("id")}
+        _index_valid = True
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +69,22 @@ def _load_notes() -> list[dict]:
         logger.debug("notes.json not found; starting with empty note list.")
         return []
     except json.JSONDecodeError as exc:
-        logger.error("notes.json is malformed (%s); resetting to empty.", exc)
+        # Bug 1 fix: back up the corrupt file before starting fresh so the
+        # user can recover their data; never silently destroy it.
+        import shutil
+        import time
+        backup = _NOTES_FILE + f".corrupt.{int(time.time())}"
+        try:
+            shutil.copy2(_NOTES_FILE, backup)
+            logger.error(
+                "notes.json corrupted (%s) — backed up to %s, starting fresh",
+                exc,
+                backup,
+            )
+        except Exception:
+            logger.error(
+                "notes.json corrupted (%s) and backup failed — starting fresh", exc
+            )
         return []
 
 
@@ -60,6 +95,8 @@ def _save_notes(notes: list[dict]) -> None:
     with open(tmp_path, "w", encoding="utf-8") as fh:
         json.dump(notes, fh, indent=2, ensure_ascii=False)
     os.replace(tmp_path, _NOTES_FILE)
+    # Bug 2 fix: invalidate the in-memory index after every write.
+    _invalidate_index()
     logger.debug("Wrote %d note(s) to %s", len(notes), _NOTES_FILE)
 
 
@@ -91,7 +128,7 @@ def _make_note(
 def save_note(
     title: str,
     raw_content: str,
-    date: str = None,
+    date: str = None,  # noqa: A002 — kept for public API compatibility
     job_id: str = None,
 ) -> dict:
     """Create and persist a new note entry.
@@ -107,17 +144,19 @@ def save_note(
     -------
     The saved note dict.
     """
-    if date is None:
-        date = datetime.utcnow().strftime("%Y-%m-%d")
+    # Bug 4 fix: use a local alias so the parameter name `date` never
+    # collides with datetime.date in this scope (datetime.date was removed
+    # from the import; we now only import `datetime`).
+    note_date = date if date is not None else datetime.utcnow().strftime("%Y-%m-%d")
 
-    note = _make_note(title, raw_content, date, job_id)
+    note = _make_note(title, raw_content, note_date, job_id)
 
     with _lock:
         notes = _load_notes()
         notes.append(note)
         _save_notes(notes)
 
-    logger.info("Saved note id=%s title=%r date=%s", note["id"], title, date)
+    logger.info("Saved note id=%s title=%r date=%s", note["id"], title, note_date)
     return note
 
 
@@ -125,21 +164,25 @@ def get_note(note_id: str) -> Optional[dict]:
     """Return a single note by its UUID, or None if not found."""
     with _lock:
         notes = _load_notes()
-
-    for note in notes:
-        if note.get("id") == note_id:
-            return note
+        # Bug 2 fix: O(1) index lookup.
+        _ensure_index(notes)
+        note = _index.get(note_id)
+        if note is not None:
+            # Bug 3 fix: return a shallow copy so the caller owns a stable
+            # snapshot that cannot be mutated by concurrent writers.
+            return dict(note)
 
     logger.debug("get_note: id=%s not found", note_id)
     return None
 
 
-def get_notes_by_date(date: str) -> list[dict]:
+def get_notes_by_date(date: str) -> list[dict]:  # noqa: A002
     """Return all notes for a given date (YYYY-MM-DD), in creation order."""
     with _lock:
         notes = _load_notes()
 
-    result = [n for n in notes if n.get("date") == date]
+    # Bug 3 fix: copy each note so callers get stable snapshots.
+    result = [dict(n) for n in notes if n.get("date") == date]
     logger.debug("get_notes_by_date: date=%s returned %d note(s)", date, len(result))
     return result
 
@@ -149,7 +192,12 @@ def get_all_notes() -> list[dict]:
     with _lock:
         notes = _load_notes()
 
-    sorted_notes = sorted(notes, key=lambda n: n.get("date", ""), reverse=True)
+    # Bug 3 fix: copy each note so callers get stable snapshots.
+    sorted_notes = sorted(
+        [dict(n) for n in notes],
+        key=lambda n: n.get("date", ""),
+        reverse=True,
+    )
     logger.debug("get_all_notes: returned %d note(s)", len(sorted_notes))
     return sorted_notes
 
@@ -190,14 +238,16 @@ def update_note_cache(note_id: str, field: str, value: Any) -> bool:
 
     with _lock:
         notes = _load_notes()
-        for note in notes:
-            if note.get("id") == note_id:
-                note[field] = value
-                _save_notes(notes)
-                logger.info(
-                    "update_note_cache: updated field=%r on note id=%s", field, note_id
-                )
-                return True
+        # Bug 2 fix: O(1) index lookup instead of linear scan.
+        _ensure_index(notes)
+        note = _index.get(note_id)
+        if note is not None:
+            note[field] = value
+            _save_notes(notes)
+            logger.info(
+                "update_note_cache: updated field=%r on note id=%s", field, note_id
+            )
+            return True
 
     logger.warning("update_note_cache: note id=%s not found", note_id)
     return False

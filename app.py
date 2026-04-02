@@ -13,8 +13,9 @@ Then open http://localhost:5000 on your phone or computer.
 import os
 import json
 import time
-
+import re as _re
 import uuid
+import uuid as _uuid_mod
 import threading
 import logging
 from pathlib import Path
@@ -27,6 +28,8 @@ from werkzeug.utils import secure_filename
 
 from config import PipelineConfig
 from pipeline import process_video
+from notes_store import get_note, update_note_cache, save_note, get_all_notes, get_dates_with_notes, get_notes_by_date
+from study_engine import generate_structured_summary, generate_study_guide, generate_quiz, compile_notes
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -37,6 +40,27 @@ app.config["UPLOAD_FOLDER"] = "uploads"
 
 # Track processing jobs
 jobs = {}
+
+# Track async study jobs
+_study_jobs: dict = {}  # job_id -> {"status": "pending"|"done"|"error", "result": ..., "error": ...}
+
+
+def _validate_uuid(val):
+    try:
+        _uuid_mod.UUID(str(val), version=4)
+        return True
+    except ValueError:
+        return False
+
+
+def _run_study_job(job_id, func, note_id, field):
+    try:
+        note = get_note(note_id)
+        result = func(note["raw_content"])
+        update_note_cache(note_id, field, result)
+        _study_jobs[job_id] = {"status": "done", "result": result}
+    except Exception as e:
+        _study_jobs[job_id] = {"status": "error", "error": str(e)}
 
 
 # ── HTML Template (single-page mobile-friendly app) ─────────────────────
@@ -775,13 +799,13 @@ def _run_pipeline(job_id: str):
 
         # Auto-save notes to the notes store
         try:
-            from notes_store import save_note
             from pathlib import Path as _Path
             manifest_data = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
             # Get full transcript from manifest or build from clips
-            raw_content = ""
-            for clip in manifest_data.get("clips", []):
-                raw_content += clip.get("transcript_preview", "") + "\n"
+            raw_content = manifest_data.get("transcript", "")
+            if not raw_content:
+                for clip in manifest_data.get("clips", []):
+                    raw_content += (clip.get("transcript") or clip.get("text") or clip.get("transcript_preview", "")) + "\n"
             if raw_content.strip():
                 video_stem = _Path(video_path).stem
                 save_note(
@@ -870,7 +894,6 @@ def download_notes(job_id, filename):
 def notes_page():
     """Show all saved notes with study features."""
     try:
-        from notes_store import get_all_notes, get_dates_with_notes
         notes = get_all_notes()
         dates = get_dates_with_notes()
     except Exception:
@@ -881,26 +904,28 @@ def notes_page():
         from study_templates import NOTES_PAGE_HTML, STUDY_UI_CSS
     except ImportError:
         return "<h1>Study templates not found</h1>", 500
-    from flask import render_template_string
     return render_template_string(NOTES_PAGE_HTML, notes=notes, dates=dates, css=STUDY_UI_CSS)
 
 
 @app.route("/api/summarize/<note_id>")
 def api_summarize(note_id):
     """Generate or return cached structured summary for a note."""
+    if not _validate_uuid(note_id):
+        return jsonify({"error": "Invalid note ID"}), 400
     try:
-        from notes_store import get_note, update_note_cache
-        from study_engine import generate_structured_summary
         note = get_note(note_id)
         if not note:
             return jsonify({"error": "Note not found"}), 404
         # Return cache if available
         if note.get("summary"):
             return jsonify({"summary": note["summary"], "cached": True})
-        # Generate
-        summary = generate_structured_summary(note["raw_content"])
-        update_note_cache(note_id, "summary", summary)
-        return jsonify({"summary": summary, "cached": False})
+        # Start background job
+        job_id = str(uuid.uuid4())
+        _study_jobs[job_id] = {"status": "pending"}
+        t = threading.Thread(target=_run_study_job, args=(job_id, generate_structured_summary, note_id, "summary"))
+        t.daemon = True
+        t.start()
+        return jsonify({"job_id": job_id, "status": "pending"})
     except Exception as e:
         logger.error(f"Summarize error: {e}")
         return jsonify({"error": str(e)}), 500
@@ -909,17 +934,21 @@ def api_summarize(note_id):
 @app.route("/api/study-guide/<note_id>")
 def api_study_guide(note_id):
     """Generate or return cached study guide for a note."""
+    if not _validate_uuid(note_id):
+        return jsonify({"error": "Invalid note ID"}), 400
     try:
-        from notes_store import get_note, update_note_cache
-        from study_engine import generate_study_guide
         note = get_note(note_id)
         if not note:
             return jsonify({"error": "Note not found"}), 404
         if note.get("study_guide"):
             return jsonify({"study_guide": note["study_guide"], "cached": True})
-        guide = generate_study_guide(note["raw_content"])
-        update_note_cache(note_id, "study_guide", guide)
-        return jsonify({"study_guide": guide, "cached": False})
+        # Start background job
+        job_id = str(uuid.uuid4())
+        _study_jobs[job_id] = {"status": "pending"}
+        t = threading.Thread(target=_run_study_job, args=(job_id, generate_study_guide, note_id, "study_guide"))
+        t.daemon = True
+        t.start()
+        return jsonify({"job_id": job_id, "status": "pending"})
     except Exception as e:
         logger.error(f"Study guide error: {e}")
         return jsonify({"error": str(e)}), 500
@@ -928,32 +957,48 @@ def api_study_guide(note_id):
 @app.route("/api/quiz/<note_id>")
 def api_quiz(note_id):
     """Generate or return cached quiz for a note."""
+    if not _validate_uuid(note_id):
+        return jsonify({"error": "Invalid note ID"}), 400
     try:
-        from notes_store import get_note, update_note_cache
-        from study_engine import generate_quiz
         note = get_note(note_id)
         if not note:
             return jsonify({"error": "Note not found"}), 404
         if note.get("quiz"):
             return jsonify({"quiz": note["quiz"], "cached": True})
-        quiz = generate_quiz(note["raw_content"])
-        update_note_cache(note_id, "quiz", quiz)
-        return jsonify({"quiz": quiz, "cached": False})
+        # Start background job
+        job_id = str(uuid.uuid4())
+        _study_jobs[job_id] = {"status": "pending"}
+        t = threading.Thread(target=_run_study_job, args=(job_id, generate_quiz, note_id, "quiz"))
+        t.daemon = True
+        t.start()
+        return jsonify({"job_id": job_id, "status": "pending"})
     except Exception as e:
         logger.error(f"Quiz error: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/job/<job_id>")
+def api_job_status(job_id):
+    """Return the status and result of an async study job."""
+    job = _study_jobs.get(job_id)
+    if job is None:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify(job)
 
 
 @app.route("/api/compile", methods=["POST"])
 def api_compile():
     """Compile notes from multiple dates into one cohesive document."""
     try:
-        from notes_store import get_notes_by_date
-        from study_engine import compile_notes
         data = request.get_json()
         dates = data.get("dates", [])
+        if not isinstance(dates, list) or len(dates) > 30:
+            return jsonify({"error": "Select between 1 and 30 dates"}), 400
         if not dates:
             return jsonify({"error": "No dates selected"}), 400
+        for d in dates:
+            if not _re.match(r'^\d{4}-\d{2}-\d{2}$', str(d)):
+                return jsonify({"error": f"Invalid date format: {d}"}), 400
         # Gather notes for selected dates
         notes_list = []
         for d in dates:
@@ -973,7 +1018,6 @@ def api_compile():
 def api_save_note():
     """Save a note manually (from text input)."""
     try:
-        from notes_store import save_note
         data = request.get_json()
         title = data.get("title", "Untitled Note")
         content = data.get("content", "")
@@ -1008,4 +1052,4 @@ if __name__ == "__main__":
     print("=" * 50)
     print()
 
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)

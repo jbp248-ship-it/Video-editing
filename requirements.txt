@@ -9,7 +9,8 @@ openai-whisper>=20231117
 scenedetect[opencv]>=0.6.2
 opencv-python-headless>=4.8.0
 
-# Summarization for header generation (optional — falls back to extractive)
+# Local AI models (downloaded automatically on first use via HuggingFace)
+# - facebook/bart-large-cnn (~1.6GB) for summarization — no API key needed
 transformers>=4.35.0
 torch>=2.0.0
 

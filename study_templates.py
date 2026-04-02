@@ -213,7 +213,7 @@ NOTES_PAGE_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Study Notes</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -353,7 +353,7 @@ NOTES_PAGE_HTML = """<!DOCTYPE html>
         <div class="content-panel" id="content-compile" style="display:none; margin-top:16px">
             <div class="content-panel-header">
                 <span class="content-panel-title">Compiled Notes</span>
-                <button onclick="copyCompiled()" style="padding:6px 12px;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#888;font-size:11px;cursor:pointer;">Copy</button>
+                <button onclick="copyCompiled(this)" style="padding:6px 12px;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#888;font-size:11px;cursor:pointer;">Copy</button>
             </div>
             <div class="md-content" id="compiled-result"></div>
         </div>

@@ -1,18 +1,21 @@
 """
 study_engine.py — Fully local AI study features. No API keys required.
 
-Uses google/flan-t5-large (HuggingFace Transformers) running on-device to
+Uses facebook/bart-large-cnn (HuggingFace Transformers) running on-device to
 transform raw notes into structured summaries, study guides, compiled
 multi-day notes, and quizzes.
 
-Model is downloaded once (~800MB) on first use via HuggingFace hub.
+Model is downloaded once (~1.6GB) on first use via HuggingFace hub.
+Quiz generation is fully extractive (TF-IDF based) — no generative model
+needed for questions, giving reliable and deterministic correct answers.
 """
 
 import hashlib
-import json
 import logging
 import math
+import random
 import re
+from collections import OrderedDict
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -26,73 +29,228 @@ logging.basicConfig(
 )
 
 # ---------------------------------------------------------------------------
-# Lazy model loading
+# Model configuration
+# ---------------------------------------------------------------------------
+
+MODEL_NAME = "facebook/bart-large-cnn"
+MAX_CHUNK_TOKENS = 900   # leave headroom for BART's 1024-token limit
+
+# ---------------------------------------------------------------------------
+# Lazy pipeline and tokenizer loading
 # ---------------------------------------------------------------------------
 
 _pipeline = None
-MODEL_NAME = "google/flan-t5-large"
-MAX_INPUT_TOKENS = 450   # conservative limit per chunk for flan-t5
-MAX_NEW_TOKENS = 512
+_tokenizer = None
+
+
+def _get_tokenizer():
+    """Load the BART tokenizer on first use (cached in memory after)."""
+    global _tokenizer
+    if _tokenizer is None:
+        from transformers import AutoTokenizer
+        logger.info("Loading tokenizer for %s...", MODEL_NAME)
+        _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        logger.info("Tokenizer loaded.")
+    return _tokenizer
 
 
 def _get_pipeline():
-    """Load the FLAN-T5-Large pipeline on first use (cached in memory after)."""
+    """Load the BART summarization pipeline on first use (cached in memory after)."""
     global _pipeline
     if _pipeline is None:
-        logger.info("Loading %s model (first run — downloads ~800MB once)...", MODEL_NAME)
+        logger.info(
+            "Loading %s model (first run — downloads ~1.6GB once)...", MODEL_NAME
+        )
         from transformers import pipeline
         _pipeline = pipeline(
-            "text2text-generation",
+            "summarization",
             model=MODEL_NAME,
-            max_new_tokens=MAX_NEW_TOKENS,
         )
         logger.info("Model loaded.")
     return _pipeline
 
 
 # ---------------------------------------------------------------------------
-# In-memory result cache
+# LRU cache with max 100 entries — prevents OOM on long-running servers
 # ---------------------------------------------------------------------------
 
-_cache: dict[str, Any] = {}
+_cache: OrderedDict[str, Any] = OrderedDict()
+MAX_CACHE = 100
 
 
 def _cache_key(text: str, func_name: str) -> str:
     return f"{func_name}:{hashlib.md5(text.encode()).hexdigest()}"
 
 
+def _cache_set(key: str, value: Any) -> None:
+    """Insert or refresh a cache entry; evict LRU entry if over capacity."""
+    if key in _cache:
+        _cache.move_to_end(key)
+    _cache[key] = value
+    if len(_cache) > MAX_CACHE:
+        _cache.popitem(last=False)
+
+
 # ---------------------------------------------------------------------------
-# Text chunking helpers
+# Token-based text chunking
 # ---------------------------------------------------------------------------
 
-def _split_into_chunks(text: str, max_words: int = 300) -> list[str]:
-    """Split text into word-count-bounded chunks, breaking on sentences."""
+def _split_into_chunks(text: str, max_tokens: int = MAX_CHUNK_TOKENS) -> list[str]:
+    """Split text into token-count-bounded chunks, breaking on sentence boundaries."""
+    tokenizer = _get_tokenizer()
     sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-    chunks, current, count = [], [], 0
+    chunks: list[str] = []
+    current_sentences: list[str] = []
+    current_tokens = 0
+
     for sent in sentences:
-        words = len(sent.split())
-        if count + words > max_words and current:
-            chunks.append(" ".join(current))
-            current, count = [], 0
-        current.append(sent)
-        count += words
-    if current:
-        chunks.append(" ".join(current))
+        sent_tokens = len(tokenizer.encode(sent, add_special_tokens=False))
+        # If a single sentence exceeds the limit, split it hard by characters
+        if sent_tokens > max_tokens:
+            # Flush what we have first
+            if current_sentences:
+                chunks.append(" ".join(current_sentences))
+                current_sentences, current_tokens = [], 0
+            # Break the oversized sentence into sub-chunks
+            words = sent.split()
+            sub: list[str] = []
+            sub_tokens = 0
+            for word in words:
+                wt = len(tokenizer.encode(word, add_special_tokens=False))
+                if sub_tokens + wt > max_tokens and sub:
+                    chunks.append(" ".join(sub))
+                    sub, sub_tokens = [], 0
+                sub.append(word)
+                sub_tokens += wt
+            if sub:
+                chunks.append(" ".join(sub))
+            continue
+
+        if current_tokens + sent_tokens > max_tokens and current_sentences:
+            chunks.append(" ".join(current_sentences))
+            current_sentences, current_tokens = [], 0
+
+        current_sentences.append(sent)
+        current_tokens += sent_tokens
+
+    if current_sentences:
+        chunks.append(" ".join(current_sentences))
+
     return chunks or [text]
 
 
-def _run_on_chunks(prompt_template: str, text: str, join_sep: str = "\n") -> str:
-    """Run the model on each chunk of text and join results."""
+def _run_on_chunks(text: str, max_length: int = 200, min_length: int = 30) -> str:
+    """Summarize text chunk-by-chunk with BART and return joined results."""
     pipe = _get_pipeline()
     chunks = _split_into_chunks(text)
-    results = []
+    results: list[str] = []
     for i, chunk in enumerate(chunks):
-        prompt = prompt_template.format(text=chunk)
-        logger.info("Processing chunk %d/%d", i + 1, len(chunks))
-        out = pipe(prompt)[0]["generated_text"].strip()
-        if out:
-            results.append(out)
-    return join_sep.join(results)
+        logger.info("Summarizing chunk %d/%d", i + 1, len(chunks))
+        out = pipe(chunk, max_length=max_length, min_length=min_length, do_sample=False)
+        summary = out[0]["summary_text"].strip()
+        if summary:
+            results.append(summary)
+    return "\n".join(results)
+
+
+# ---------------------------------------------------------------------------
+# TF-IDF helpers for extractive quiz and study guide generation
+# ---------------------------------------------------------------------------
+
+def _tokenize_words(text: str) -> list[str]:
+    """Lower-case word tokenizer (strips punctuation)."""
+    return re.findall(r"[a-z]+", text.lower())
+
+
+def _compute_tfidf(sentences: list[str]) -> list[float]:
+    """
+    Return a TF-IDF relevance score for each sentence.
+    Uses the sentence itself as the 'document' and the full corpus for IDF.
+    """
+    if not sentences:
+        return []
+
+    # Build document frequency table
+    df: dict[str, int] = {}
+    tokenized = [_tokenize_words(s) for s in sentences]
+    for words in tokenized:
+        for w in set(words):
+            df[w] = df.get(w, 0) + 1
+
+    N = len(sentences)
+    scores: list[float] = []
+    for words in tokenized:
+        if not words:
+            scores.append(0.0)
+            continue
+        tf: dict[str, float] = {}
+        for w in words:
+            tf[w] = tf.get(w, 0) + 1
+        for w in tf:
+            tf[w] /= len(words)
+        score = sum(
+            tf[w] * math.log((N + 1) / (df.get(w, 0) + 1))
+            for w in tf
+        )
+        scores.append(score)
+    return scores
+
+
+def _pick_top_sentences(notes_text: str, n: int = 7) -> list[str]:
+    """Return the top-n sentences ranked by TF-IDF relevance."""
+    sentences = [
+        s.strip()
+        for s in re.split(r'(?<=[.!?])\s+', notes_text.strip())
+        if len(s.split()) > 5
+    ]
+    if not sentences:
+        return []
+    scores = _compute_tfidf(sentences)
+    ranked = sorted(zip(scores, sentences), key=lambda x: x[0], reverse=True)
+    return [s for _, s in ranked[:n]]
+
+
+def _find_key_word(sentence: str) -> str:
+    """
+    Find the most significant word/entity in a sentence.
+    Prefers longest capitalized multi-word sequence, then longest word >5 chars.
+    Returns empty string if nothing suitable found.
+    """
+    # Try longest capitalized sequence (proper noun / entity)
+    cap_matches = re.findall(r'(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', sentence)
+    if cap_matches:
+        return max(cap_matches, key=len)
+    # Fall back to longest word longer than 5 characters
+    words = re.findall(r'[A-Za-z]{6,}', sentence)
+    if words:
+        return max(words, key=len)
+    return ""
+
+
+def _collect_distractor_words(notes_text: str, exclude_sentence: str, n: int = 3) -> list[str]:
+    """
+    Collect n significant words from the full notes text, excluding those
+    in the given sentence, to use as wrong-answer distractors.
+    """
+    exclude_lower = set(_tokenize_words(exclude_sentence))
+    # Pull all candidate significant words from entire notes text
+    candidates: list[str] = []
+    for sent in re.split(r'(?<=[.!?])\s+', notes_text):
+        if sent.strip() == exclude_sentence.strip():
+            continue
+        word = _find_key_word(sent)
+        if word and word.lower() not in exclude_lower and word not in candidates:
+            candidates.append(word)
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for w in candidates:
+        if w not in seen:
+            seen.add(w)
+            unique.append(w)
+    # Shuffle so distractors aren't always in document order
+    random.shuffle(unique)
+    return unique[:n]
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +259,7 @@ def _run_on_chunks(prompt_template: str, text: str, join_sep: str = "\n") -> str
 
 def generate_structured_summary(notes_text: str) -> str:
     """
-    Transform raw notes into a structured markdown summary using FLAN-T5-Large.
+    Transform raw notes into a structured markdown summary using BART.
     Runs entirely locally — no API key needed.
     """
     if not notes_text or not notes_text.strip():
@@ -117,32 +275,34 @@ def generate_structured_summary(notes_text: str) -> str:
         pipe = _get_pipeline()
         chunks = _split_into_chunks(notes_text)
 
-        # Summarize each chunk
-        chunk_summaries = []
+        # Summarize each chunk individually
+        chunk_summaries: list[str] = []
         for i, chunk in enumerate(chunks):
             logger.info("Summarizing chunk %d/%d", i + 1, len(chunks))
-            prompt = f"Summarize the following lecture notes into key points:\n{chunk}"
-            out = pipe(prompt)[0]["generated_text"].strip()
-            if out:
-                chunk_summaries.append(out)
+            out = pipe(chunk, max_length=200, min_length=30, do_sample=False)
+            summary = out[0]["summary_text"].strip()
+            if summary:
+                chunk_summaries.append(summary)
 
         combined = "\n".join(chunk_summaries)
 
-        # Generate overview from combined summaries
-        overview_prompt = f"Write a 2-3 sentence overview of these notes:\n{combined[:1000]}"
-        overview = pipe(overview_prompt)[0]["generated_text"].strip()
+        # Generate higher-level overview from combined chunk summaries
+        overview = _run_on_chunks(combined, max_length=120, min_length=30)
 
-        # Key concepts
-        concepts_prompt = f"List the main concepts and ideas from these notes as bullet points:\n{combined[:1000]}"
-        concepts = pipe(concepts_prompt)[0]["generated_text"].strip()
+        # Key concepts: summarize the combined summaries more aggressively
+        concepts_raw = _run_on_chunks(combined, max_length=150, min_length=20)
+        # Format as bullet points (one per sentence)
+        concept_sentences = re.split(r'(?<=[.!?])\s+', concepts_raw.strip())
+        concepts = "\n".join(f"- {s.strip()}" for s in concept_sentences if s.strip())
 
-        # Quick review
-        review_prompt = f"Create a quick review list of the most important facts from:\n{combined[:800]}"
-        review = pipe(review_prompt)[0]["generated_text"].strip()
+        # Quick review: tightest summary of the combined output
+        review_raw = _run_on_chunks(combined, max_length=80, min_length=15)
+        review_sentences = re.split(r'(?<=[.!?])\s+', review_raw.strip())
+        review = "\n".join(f"- {s.strip()}" for s in review_sentences if s.strip())
 
-        # Build markdown output
-        title_prompt = f"Give a short title (5 words max) for these notes:\n{notes_text[:300]}"
-        title = pipe(title_prompt)[0]["generated_text"].strip()
+        # Title: summarize the first chunk very short
+        title_out = pipe(chunks[0], max_length=12, min_length=3, do_sample=False)
+        title = title_out[0]["summary_text"].strip()
 
         result = f"""# {title}
 
@@ -158,7 +318,7 @@ def generate_structured_summary(notes_text: str) -> str:
 ## Quick Review
 {review}
 """
-        _cache[key] = result
+        _cache_set(key, result)
         return result
 
     except Exception as exc:
@@ -185,24 +345,41 @@ def generate_study_guide(notes_text: str) -> str:
     logger.info("Generating study guide locally...")
 
     try:
-        pipe = _get_pipeline()
+        # Summarize the full text properly with chunking
+        summary = _run_on_chunks(notes_text, max_length=200, min_length=30)
 
-        # Get summary first (uses cache if already generated)
-        summary = generate_structured_summary(notes_text)
+        # Extract key terms via TF-IDF on full text
+        sentences = [
+            s.strip()
+            for s in re.split(r'(?<=[.!?])\s+', notes_text.strip())
+            if len(s.split()) > 5
+        ]
+        scores = _compute_tfidf(sentences)
+        ranked_sents = [s for _, s in sorted(zip(scores, sentences), key=lambda x: x[0], reverse=True)]
 
-        truncated = notes_text[:1200]
+        # Collect unique significant words from top sentences as key terms
+        seen_terms: set[str] = set()
+        terms_list: list[str] = []
+        for sent in ranked_sents[:15]:
+            word = _find_key_word(sent)
+            if word and word.lower() not in seen_terms:
+                seen_terms.add(word.lower())
+                terms_list.append(f"- **{word}**: found in — \"{sent[:80]}...\"" if len(sent) > 80 else f"- **{word}**: found in — \"{sent}\"")
+            if len(terms_list) >= 10:
+                break
+        terms = "\n".join(terms_list) if terms_list else "- (No key terms extracted)"
 
-        # Key terms
-        terms_prompt = f"List important terms and their definitions from these notes:\n{truncated}"
-        terms = pipe(terms_prompt)[0]["generated_text"].strip()
-
-        # Practice questions
-        questions_prompt = f"Write 5 practice questions to test understanding of these notes:\n{truncated}"
-        questions = pipe(questions_prompt)[0]["generated_text"].strip()
-
-        # Memory aids
-        aids_prompt = f"Suggest memory tips or mnemonics to remember the key ideas from:\n{truncated}"
-        aids = pipe(aids_prompt)[0]["generated_text"].strip()
+        # Practice questions from top sentences (extractive fill-in-blank)
+        top_sents = _pick_top_sentences(notes_text, n=5)
+        practice_qs: list[str] = []
+        for idx, sent in enumerate(top_sents, 1):
+            word = _find_key_word(sent)
+            if word:
+                q = sent.replace(word, "_____", 1)
+                practice_qs.append(f"{idx}. Fill in the blank: {q}\n   *(Answer: {word})*")
+            else:
+                practice_qs.append(f"{idx}. Explain the following: {sent[:100]}")
+        questions = "\n\n".join(practice_qs) if practice_qs else "(No practice questions generated)"
 
         result = f"""# Study Guide
 
@@ -214,11 +391,8 @@ def generate_study_guide(notes_text: str) -> str:
 
 ## Practice Questions
 {questions}
-
-## Memory Aids
-{aids}
 """
-        _cache[key] = result
+        _cache_set(key, result)
         return result
 
     except Exception as exc:
@@ -238,7 +412,7 @@ def compile_notes(notes_list: list[dict]) -> str:
     if not notes_list:
         return "[Error] No notes provided."
 
-    dated_sections = []
+    dated_sections: list[str] = []
     for entry in notes_list:
         date = entry.get("date", "Unknown date")
         content = entry.get("content", "").strip()
@@ -252,30 +426,27 @@ def compile_notes(notes_list: list[dict]) -> str:
     if key in _cache:
         return _cache[key]
 
-    logger.info("Compiling notes from %d days locally...", len(dated_sections))
+    logger.info("Compiling notes from %d days locally...", len(notes_list))
 
     try:
-        pipe = _get_pipeline()
-        all_content = "\n\n".join(dated_sections)
-
-        # Summarize each day's notes
-        compiled_days = []
+        # Summarize each day's content with BART (token-chunked)
+        compiled_days: list[str] = []
         for entry in notes_list:
             date = entry.get("date", "Unknown date")
             content = entry.get("content", "").strip()
             if not content:
                 continue
-            prompt = f"Summarize the key points from these notes:\n{content[:800]}"
-            day_summary = pipe(prompt)[0]["generated_text"].strip()
+            day_summary = _run_on_chunks(content, max_length=150, min_length=20)
             compiled_days.append(f"**{date}**: {day_summary}")
 
-        # Find major themes across all days
-        themes_prompt = f"What are the main recurring themes across these notes:\n{all_content[:1000]}"
-        themes = pipe(themes_prompt)[0]["generated_text"].strip()
+        # Find major themes by summarizing all daily summaries together
+        all_summaries = "\n\n".join(compiled_days)
+        themes = _run_on_chunks(all_summaries, max_length=180, min_length=30)
 
-        # Key takeaways
-        takeaways_prompt = f"List the most important takeaways from all these notes:\n{all_content[:1000]}"
-        takeaways = pipe(takeaways_prompt)[0]["generated_text"].strip()
+        # Key takeaways: tighter summary of the combined summaries
+        takeaways_raw = _run_on_chunks(all_summaries, max_length=120, min_length=20)
+        takeaway_sentences = re.split(r'(?<=[.!?])\s+', takeaways_raw.strip())
+        takeaways = "\n".join(f"- {s.strip()}" for s in takeaway_sentences if s.strip())
 
         result = f"""# Compiled Notes
 
@@ -288,7 +459,7 @@ def compile_notes(notes_list: list[dict]) -> str:
 ## Key Takeaways
 {takeaways}
 """
-        _cache[key] = result
+        _cache_set(key, result)
         return result
 
     except Exception as exc:
@@ -297,13 +468,20 @@ def compile_notes(notes_list: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 4. generate_quiz
+# 4. generate_quiz  — fully extractive, no generative model for questions
 # ---------------------------------------------------------------------------
 
 def generate_quiz(notes_text: str) -> dict:
     """
-    Generate a mixed quiz from raw notes using FLAN-T5-Large.
-    Runs entirely locally — no API key needed.
+    Generate a multiple-choice quiz from raw notes using extractive TF-IDF.
+
+    - Scores ALL sentences in notes_text by TF-IDF relevance (no truncation).
+    - Picks top 7 sentences as quiz-worthy.
+    - For each sentence, blanks the most significant word/entity.
+    - Correct option is randomly placed among A/B/C/D and tracked correctly.
+    - Distractors are other significant words drawn from the full notes text.
+
+    Runs entirely locally — no API key, no generative model needed for questions.
     """
     if not notes_text or not notes_text.strip():
         return _empty_quiz("No notes were provided.")
@@ -312,74 +490,56 @@ def generate_quiz(notes_text: str) -> dict:
     if key in _cache:
         return _cache[key]
 
-    logger.info("Generating quiz locally...")
+    logger.info("Generating quiz locally (extractive TF-IDF)...")
 
     try:
-        pipe = _get_pipeline()
-        truncated = notes_text[:1500]
-        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', truncated) if len(s.split()) > 6]
-        # Pick up to 7 sentences spread through the text
-        step = max(1, len(sentences) // 7)
-        selected = sentences[::step][:7]
+        top_sentences = _pick_top_sentences(notes_text, n=7)
+        if not top_sentences:
+            return _empty_quiz("Could not extract sentences from notes.")
 
-        questions = []
-        qid = 1
+        questions: list[dict] = []
+        letters = ["A", "B", "C", "D"]
 
-        # Multiple choice questions (first 3 sentences)
-        for sent in selected[:3]:
-            q_prompt = f"Write a multiple choice question about this fact with 4 options (A, B, C, D) and mark the correct answer:\n{sent}"
-            raw = pipe(q_prompt)[0]["generated_text"].strip()
+        for qid, sent in enumerate(top_sentences, 1):
+            correct_word = _find_key_word(sent)
+            if not correct_word:
+                # Skip sentences where we can't find a key word
+                continue
+
+            # Build fill-in-blank question stem
+            blanked = sent.replace(correct_word, "_____", 1)
+            question_text = f"Fill in the blank: {blanked}"
+
+            # Get 3 distractor words from the rest of the notes
+            distractors = _collect_distractor_words(notes_text, sent, n=3)
+            # If not enough distractors, pad with generic placeholders
+            while len(distractors) < 3:
+                distractors.append(f"term{len(distractors) + 1}")
+
+            # Build the 4-option pool and shuffle
+            option_words = [correct_word] + distractors[:3]
+            random.shuffle(option_words)
+
+            # Find which letter the correct word landed on after shuffle
+            correct_letter = letters[option_words.index(correct_word)]
+
+            # Format options as "A. word" etc.
+            options = [f"{letters[i]}. {option_words[i]}" for i in range(4)]
+
             questions.append({
                 "id": qid,
                 "type": "multiple_choice",
-                "question": f"Which of the following best describes: {sent[:80]}...?" if len(sent) > 80 else f"Question about: {sent}",
-                "options": _extract_or_make_options(raw, sent),
-                "answer": "A",
-                "explanation": raw[:200] if raw else sent,
-            })
-            qid += 1
-
-        # Short answer questions (next 3 sentences)
-        for sent in selected[3:6]:
-            q_prompt = f"Write a short answer question to test understanding of:\n{sent}"
-            question_text = pipe(q_prompt)[0]["generated_text"].strip()
-            if not question_text or len(question_text) < 5:
-                question_text = f"Explain in your own words: {sent[:100]}"
-
-            a_prompt = f"Provide a concise answer to: {question_text}\nBased on: {sent}"
-            answer_text = pipe(a_prompt)[0]["generated_text"].strip()
-
-            questions.append({
-                "id": qid,
-                "type": "short_answer",
                 "question": question_text,
-                "options": None,
-                "answer": answer_text or sent,
+                "options": options,
+                "answer": correct_letter,
                 "explanation": sent,
             })
-            qid += 1
 
-        # Concept question (last sentence or overall)
-        concept_src = selected[6] if len(selected) > 6 else truncated[:300]
-        c_prompt = f"Write a conceptual question asking someone to explain the main idea of:\n{concept_src[:400]}"
-        concept_q = pipe(c_prompt)[0]["generated_text"].strip()
-        if not concept_q or len(concept_q) < 5:
-            concept_q = "Explain the main concept covered in these notes."
+        if not questions:
+            return _empty_quiz("No quiz-worthy sentences found in notes.")
 
-        exp_prompt = f"Explain the main concept in:\n{concept_src[:400]}"
-        concept_ans = pipe(exp_prompt)[0]["generated_text"].strip()
-
-        questions.append({
-            "id": qid,
-            "type": "concept",
-            "question": concept_q,
-            "options": None,
-            "answer": concept_ans or concept_src[:200],
-            "explanation": concept_src[:200],
-        })
-
-        result = {"questions": questions}
-        _cache[key] = result
+        result: dict = {"questions": questions}
+        _cache_set(key, result)
         return result
 
     except Exception as exc:
@@ -387,25 +547,9 @@ def generate_quiz(notes_text: str) -> dict:
         return _empty_quiz(f"Quiz generation failed: {exc}")
 
 
-def _extract_or_make_options(raw: str, context: str) -> list[str]:
-    """Extract A/B/C/D options from model output, or generate basic ones."""
-    lines = raw.splitlines()
-    options = []
-    for line in lines:
-        line = line.strip()
-        if re.match(r'^[A-D][.)]\s+', line):
-            options.append(line)
-    if len(options) == 4:
-        return options
-    # Fallback: make simple true/false style options
-    short = context[:60].rstrip(".,;")
-    return [
-        f"A. {short}",
-        f"B. The opposite of what was stated",
-        f"C. None of the above",
-        f"D. All of the above",
-    ]
-
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 def _empty_quiz(reason: str) -> dict:
     return {
