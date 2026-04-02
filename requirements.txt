@@ -21,7 +21,9 @@ librosa>=0.10.0
 flask>=3.0.0
 
 # Desktop app (native window wrapper)
-pywebview>=5.0
+# Install separately: pip install pywebview
+# Requires Python 3.12 or earlier on Windows (pythonnet compatibility)
+# pywebview>=5.0
 
 # Utilities
 tqdm>=4.65.0

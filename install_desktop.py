@@ -24,38 +24,48 @@ DESKTOP_SCRIPT = PROJECT_ROOT / "desktop.py"
 
 
 def install_dependencies():
-    print("Installing core dependencies ...")
-    # Install core deps first (these are stable across Python versions)
-    try:
-        subprocess.check_call([PYTHON, "-m", "pip", "install", "-r", str(PROJECT_ROOT / "requirements.txt")])
-    except subprocess.CalledProcessError:
-        print("  WARNING: Some core dependencies failed. Continuing anyway ...\n")
+    v = sys.version_info
+    print(f"Detected Python {v.major}.{v.minor}.{v.micro}\n")
 
-    # Install pywebview separately — on Windows it may need special handling
-    print("Installing pywebview (desktop window) ...")
-    try:
-        subprocess.check_call([PYTHON, "-m", "pip", "install", "pywebview>=5.0"])
-        print("pywebview installed.\n")
-    except subprocess.CalledProcessError:
+    # ── Check Python version ──────────────────────────────────────────
+    if sys.platform == "win32" and v.minor >= 13:
+        print("=" * 60)
+        print(f"  WARNING: Python {v.major}.{v.minor} is too new for pywebview")
+        print("  on Windows (pythonnet has no build for it yet).")
+        print()
+        print("  Please install Python 3.12 from:")
+        print("    https://www.python.org/downloads/release/python-3129/")
+        print()
+        print("  Then re-run:")
+        print('    py -3.12 install_desktop.py')
+        print("=" * 60)
+        return False
+
+    # ── Install core deps (from requirements.txt) ────────────────────
+    print("Installing core dependencies ...")
+    result = subprocess.run(
+        [PYTHON, "-m", "pip", "install", "-r", str(PROJECT_ROOT / "requirements.txt")],
+    )
+    if result.returncode != 0:
+        print("  WARNING: Some core dependencies failed. Continuing ...\n")
+
+    # ── Install pywebview separately ─────────────────────────────────
+    print("\nInstalling pywebview (desktop window) ...")
+    result = subprocess.run([PYTHON, "-m", "pip", "install", "pywebview>=5.0"])
+    if result.returncode != 0:
         print()
         print("=" * 55)
         print("  pywebview failed to install.")
         print()
-        v = sys.version_info
-        if v.minor >= 13:
-            print(f"  You're on Python {v.major}.{v.minor} which is very new.")
-            print("  pywebview/pythonnet may not support it yet.")
-            print()
-            print("  Fix: install Python 3.12 from python.org and retry:")
-            print("    py -3.12 install_desktop.py")
+        if sys.platform == "win32":
+            print("  Try:  pip install pywebview[cef]")
         else:
-            print("  On Windows, try:  pip install pywebview[cef]")
             print("  On Linux:  sudo apt install python3-gi gir1.2-webkit2-4.1")
+            print("  Then retry: python install_desktop.py")
         print("=" * 55)
-        print()
         return False
 
-    print("All dependencies installed.\n")
+    print("\nAll dependencies installed.\n")
     return True
 
 
