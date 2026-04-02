@@ -4,3 +4,4 @@ dist-electron/
 prisma/*.db
 prisma/*.db-journal
 .env
+tsconfig.tsbuildinfo
