@@ -104,63 +104,74 @@ function isPortFree(port) {
   });
 }
 
+function killProcessOnPort(port) {
+  if (process.platform === "win32") {
+    try {
+      const output = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { shell: true, stdio: "pipe" }).toString();
+      const lines = output.trim().split("\n");
+      const pids = new Set();
+      for (const line of lines) {
+        const parts = line.trim().split(/\s+/);
+        const pid = parts[parts.length - 1];
+        if (pid && pid !== "0" && pid !== String(process.pid)) pids.add(pid);
+      }
+      for (const pid of pids) {
+        try { execSync(`taskkill /F /PID ${pid}`, { shell: true, stdio: "pipe" }); } catch {}
+      }
+      if (pids.size > 0) {
+        console.log(`Killed ${pids.size} stale process(es) on port ${port}`);
+        // Wait a moment for the port to be released
+        const start = Date.now();
+        while (Date.now() - start < 2000) { /* busy wait */ }
+      }
+    } catch {
+      // netstat found nothing — port is free
+    }
+  } else {
+    try { execSync(`lsof -ti :${port} | xargs kill -9`, { shell: true, stdio: "pipe" }); } catch {}
+  }
+}
+
 function startNextServer() {
-  return new Promise((resolve, reject) => {
-    // Check port right before spawning to minimize race window
-    const portCheck = net.createServer();
-    portCheck.once("error", () => {
-      reject(new Error(`Port ${PORT} is already in use. Close any other TicketReselling instance and try again.`));
-    });
-    portCheck.once("listening", () => {
-      portCheck.close(() => {
-        // Port is free — start Next.js immediately to minimize race window
-        const cmd = isDev ? "dev" : "start";
-        let stderrOutput = "";
+  // Auto-kill any stale process on the port before starting
+  killProcessOnPort(PORT);
 
-        nextProcess = spawn("npx", ["next", cmd, "-p", String(PORT)], {
-          cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe",
-        });
-        nextProcess.stdout.on("data", (d) => console.log(`[next] ${d.toString().trim()}`));
-        nextProcess.stderr.on("data", (d) => {
-          const text = d.toString().trim();
-          stderrOutput += text + "\n";
-          console.error(`[next] ${text}`);
-        });
-        nextProcess.on("close", (code) => {
-          console.log(`Next.js exited with code ${code}`);
-          // If Next.js crashes during startup, retry once
-          if (code !== 0 && !nextProcess._retried) {
-            console.log("Retrying Next.js startup...");
-            nextProcess._retried = true;
-            setTimeout(() => {
-              startNextServer().then(resolve).catch(reject);
-            }, 2000);
-            return;
-          }
-          if (code !== 0) {
-            const errMsg = stderrOutput.trim() || `Next.js exited with code ${code}`;
-            dialog.showErrorBox(
-              "TicketReselling — Next.js Failed",
-              `Next.js dev server crashed:\n\n${errMsg.slice(0, 1000)}`
-            );
-            app.quit();
-            return;
-          }
-          if (mainWindow && !mainWindow.isDestroyed()) app.quit();
-        });
-        nextProcess.on("error", (err) => {
-          dialog.showErrorBox(
-            "TicketReselling — Failed to Start",
-            `Could not start Next.js:\n\n${err.message}`
-          );
-          reject(err);
-        });
+  const cmd = isDev ? "dev" : "start";
+  let stderrOutput = "";
 
-        // Resolve immediately — the server will be polled by waitForServer
-        resolve();
-      });
-    });
-    portCheck.listen(PORT, "127.0.0.1");
+  nextProcess = spawn("npx", ["next", cmd, "-p", String(PORT)], {
+    cwd: getProjectRoot(), env: getEnv(), shell: true, stdio: "pipe",
+  });
+  nextProcess.stdout.on("data", (d) => console.log(`[next] ${d.toString().trim()}`));
+  nextProcess.stderr.on("data", (d) => {
+    const text = d.toString().trim();
+    stderrOutput += text + "\n";
+    console.error(`[next] ${text}`);
+  });
+  nextProcess.on("close", (code) => {
+    console.log(`Next.js exited with code ${code}`);
+    if (code !== 0 && !nextProcess._retried) {
+      console.log("Retrying Next.js startup...");
+      nextProcess._retried = true;
+      killProcessOnPort(PORT);
+      setTimeout(() => startNextServer(), 2000);
+      return;
+    }
+    if (code !== 0) {
+      dialog.showErrorBox(
+        "TicketReselling — Next.js Failed",
+        `Next.js dev server crashed:\n\n${(stderrOutput || "").slice(0, 1000)}`
+      );
+      app.quit();
+      return;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) app.quit();
+  });
+  nextProcess.on("error", (err) => {
+    dialog.showErrorBox(
+      "TicketReselling — Failed to Start",
+      `Could not start Next.js:\n\n${err.message}`
+    );
   });
 }
 
@@ -173,7 +184,7 @@ function waitForServer(retries = 240) {
       const req = http.get(`http://localhost:${PORT}`, { timeout: 2000 }, (res) => {
         res.resume();
         req.destroy();
-        if (res.statusCode === 200) resolve();
+        if (res.statusCode < 400) resolve();
         else if (attempts >= retries) reject(new Error(`Server returned ${res.statusCode}`));
         else setTimeout(check, 500);
       });
@@ -832,18 +843,7 @@ app.whenReady().then(async () => {
 
   // Boot everything in the background
   await initDatabase();
-
-  try {
-    await startNextServer();
-  } catch (err) {
-    if (splashTimeout) { clearTimeout(splashTimeout); splashTimeout = null; }
-    dialog.showErrorBox(
-      "TicketReselling — Failed to Start",
-      `Could not start the Next.js server:\n\n${err.message}`
-    );
-    app.quit();
-    return;
-  }
+  startNextServer();
 
   try {
     await waitForServer();
