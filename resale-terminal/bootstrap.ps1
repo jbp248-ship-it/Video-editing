@@ -45,7 +45,7 @@ Write-Host "  App downloaded." -ForegroundColor Green
 # Step 3: Install npm packages
 Write-Host "  Installing packages (1-2 min)..." -ForegroundColor Yellow
 Set-Location $InstallDir
-npm install --silent 2>$null
+npm install
 Write-Host "  Packages ready." -ForegroundColor Green
 
 # Step 4: Restore or create .env (keys are set inside the app)
@@ -61,7 +61,7 @@ $shortcut = "$env:USERPROFILE\Desktop\Resale Terminal.lnk"
 $shell = New-Object -ComObject WScript.Shell
 $lnk = $shell.CreateShortcut($shortcut)
 $lnk.TargetPath = "powershell.exe"
-$lnk.Arguments = "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startScript`""
+$lnk.Arguments = "-ExecutionPolicy Bypass -File `"$startScript`""
 $lnk.WorkingDirectory = $InstallDir
 $lnk.Description = "Resale Terminal"
 $lnk.Save()
