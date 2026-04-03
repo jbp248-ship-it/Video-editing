@@ -38,16 +38,9 @@ Set-Location $InstallDir
 npm install --silent 2>$null
 Write-Host "  Packages ready." -ForegroundColor Green
 
-# Step 4: Set up API keys
+# Step 4: Create blank .env (keys are set inside the app)
 if (-Not (Test-Path "$InstallDir\.env")) {
-    Copy-Item "$InstallDir\.env.example" "$InstallDir\.env"
-    Write-Host ""
-    Write-Host "  =============================================" -ForegroundColor Yellow
-    Write-Host "   LAST STEP: Paste your 3 API keys into the" -ForegroundColor Yellow
-    Write-Host "   file that's about to open, then SAVE it." -ForegroundColor Yellow
-    Write-Host "  =============================================" -ForegroundColor Yellow
-    Write-Host ""
-    Start-Process notepad "$InstallDir\.env" -Wait
+    "PORT=3001" | Out-File "$InstallDir\.env" -Encoding utf8
 }
 
 # Step 5: Create Desktop shortcut
@@ -64,7 +57,9 @@ $lnk.Save()
 Write-Host ""
 Write-Host "  ================================" -ForegroundColor Green
 Write-Host "   DONE! Launching now..." -ForegroundColor Green
-Write-Host "   A shortcut is on your Desktop." -ForegroundColor Green
+Write-Host "   Shortcut added to your Desktop." -ForegroundColor Green
+Write-Host "   Go to Settings in the app to" -ForegroundColor Green
+Write-Host "   paste your 3 free API keys." -ForegroundColor Green
 Write-Host "  ================================" -ForegroundColor Green
 Write-Host ""
 

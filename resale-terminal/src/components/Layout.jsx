@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Terminal, Search, Package, TrendingUp, Bell, Menu, X } from 'lucide-react';
+import { Terminal, Search, Package, TrendingUp, Bell, Settings, Menu, X } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: Search, label: 'Discovery' },
   { to: '/inventory', icon: Package, label: 'Inventory' },
   { to: '/pnl', icon: TrendingUp, label: 'P&L Tracker' },
   { to: '/alerts', icon: Bell, label: 'Alerts' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 function SidebarContent({ onNavClick }) {

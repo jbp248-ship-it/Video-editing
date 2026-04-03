@@ -9,6 +9,7 @@ import inventoryRoutes from './routes/inventory.js';
 import seatgeekRoutes from './routes/seatgeek.js';
 import ticketmasterRoutes from './routes/ticketmaster.js';
 import anthropicRoutes from './routes/anthropic.js';
+import settingsRoutes from './routes/settings.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,6 +29,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/seatgeek', seatgeekRoutes);
 app.use('/api/ticketmaster', ticketmasterRoutes);
 app.use('/api/ai', anthropicRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Production: serve static files and SPA fallback
 if (process.env.NODE_ENV === 'production') {
