@@ -12,6 +12,7 @@ try {
   const { default: anthropicRoutes } = await import('./routes/anthropic.js');
   const { default: settingsRoutes } = await import('./routes/settings.js');
   const { default: supplyRoutes } = await import('./routes/supply.js');
+  const { default: multiplatformRoutes } = await import('./routes/multiplatform.js');
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -33,6 +34,7 @@ try {
   app.use('/api/ai', anthropicRoutes);
   app.use('/api/settings', settingsRoutes);
   app.use('/api/supply', supplyRoutes);
+  app.use('/api/multiplatform', multiplatformRoutes);
 
   // Production: serve static files and SPA fallback
   if (process.env.NODE_ENV === 'production') {

@@ -10,7 +10,7 @@ const router = Router();
 
 // GET /api/settings — return current key values
 router.get('/', (req, res) => {
-  const keys = { ANTHROPIC_API_KEY: '', SEATGEEK_CLIENT_ID: '', TICKETMASTER_API_KEY: '' };
+  const keys = { ANTHROPIC_API_KEY: '', SEATGEEK_CLIENT_ID: '', TICKETMASTER_API_KEY: '', TICKETSDATA_EMAIL: '', TICKETSDATA_PASSWORD: '' };
   if (existsSync(envPath)) {
     let content = readFileSync(envPath, 'utf-8');
     // Strip BOM that PowerShell adds on Windows
@@ -31,7 +31,7 @@ router.get('/', (req, res) => {
 
 // POST /api/settings — write keys to .env file
 router.post('/', (req, res) => {
-  const { ANTHROPIC_API_KEY, SEATGEEK_CLIENT_ID, TICKETMASTER_API_KEY } = req.body;
+  const { ANTHROPIC_API_KEY, SEATGEEK_CLIENT_ID, TICKETMASTER_API_KEY, TICKETSDATA_EMAIL, TICKETSDATA_PASSWORD } = req.body;
 
   // Read existing .env or start fresh (handle Windows BOM + line endings)
   let lines;
@@ -42,7 +42,7 @@ router.post('/', (req, res) => {
     lines = ['PORT=3001'];
   }
 
-  const updates = { ANTHROPIC_API_KEY, SEATGEEK_CLIENT_ID, TICKETMASTER_API_KEY };
+  const updates = { ANTHROPIC_API_KEY, SEATGEEK_CLIENT_ID, TICKETMASTER_API_KEY, TICKETSDATA_EMAIL, TICKETSDATA_PASSWORD };
 
   for (const [key, val] of Object.entries(updates)) {
     if (!val) continue;

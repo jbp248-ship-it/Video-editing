@@ -27,11 +27,27 @@ const KEYS = [
     url: 'https://developer.ticketmaster.com',
     urlLabel: 'Get free key →',
   },
+  {
+    field: 'TICKETSDATA_EMAIL',
+    label: 'TicketsData Email (Optional)',
+    placeholder: 'you@email.com',
+    description: 'Multi-platform data: StubHub, VividSeats, TickPick, GameTime, Viagogo',
+    url: 'https://ticketsdata.com',
+    urlLabel: 'Free trial →',
+  },
+  {
+    field: 'TICKETSDATA_PASSWORD',
+    label: 'TicketsData Password (Optional)',
+    placeholder: 'your-password',
+    description: 'Unlocks ticket counts from 7+ platforms for accurate supply data',
+    url: 'https://ticketsdata.com',
+    urlLabel: 'Free trial →',
+  },
 ];
 
 export default function Settings() {
   const navigate = useNavigate();
-  const [values, setValues] = useState({ ANTHROPIC_API_KEY: '', SEATGEEK_CLIENT_ID: '', TICKETMASTER_API_KEY: '' });
+  const [values, setValues] = useState({ ANTHROPIC_API_KEY: '', SEATGEEK_CLIENT_ID: '', TICKETMASTER_API_KEY: '', TICKETSDATA_EMAIL: '', TICKETSDATA_PASSWORD: '' });
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -44,6 +60,8 @@ export default function Settings() {
           ANTHROPIC_API_KEY: data.ANTHROPIC_API_KEY || '',
           SEATGEEK_CLIENT_ID: data.SEATGEEK_CLIENT_ID || '',
           TICKETMASTER_API_KEY: data.TICKETMASTER_API_KEY || '',
+          TICKETSDATA_EMAIL: data.TICKETSDATA_EMAIL || '',
+          TICKETSDATA_PASSWORD: data.TICKETSDATA_PASSWORD || '',
         });
       })
       .catch(() => {})
