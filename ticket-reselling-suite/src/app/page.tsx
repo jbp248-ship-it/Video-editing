@@ -6,15 +6,7 @@ import { InventoryTable } from "@/components/InventoryTable";
 import { AlertPanel } from "@/components/AlertPanel";
 import { SalesHistory } from "@/components/SalesHistory";
 import { CSVImport } from "@/components/CSVImport";
-
-// ─── Placeholder for UnifiedSearch (will be created by another agent) ────────
-function UnifiedSearch() {
-  return (
-    <div className="card p-8 text-center text-warm-500">
-      Search coming soon...
-    </div>
-  );
-}
+import { UnifiedSearch } from "@/components/UnifiedSearch";
 
 // ─── Simple Dashboard ────────────────────────────────────────────────────────
 function StatCard({ label, value }: { label: string; value: string }) {
