@@ -32,4 +32,7 @@ export const api = {
   savePriceSnapshot: (data) => request('/api/prices/snapshot', { method: 'POST', body: JSON.stringify(data) }),
   getPriceHistory: (eventKey) => request(`/api/prices/history?event=${encodeURIComponent(eventKey)}`),
   getPriceTrend: (eventKey) => request(`/api/prices/trend?event=${encodeURIComponent(eventKey)}`),
+  getArizonaEvents: () => request('/api/arizona/events'),
+  getArizonaVelocity: () => request('/api/arizona/velocity'),
+  scanArizona: () => request('/api/arizona/scan', { method: 'POST' }),
 };

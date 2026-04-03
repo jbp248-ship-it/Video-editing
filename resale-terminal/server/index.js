@@ -15,6 +15,8 @@ try {
   const { default: multiplatformRoutes } = await import('./routes/multiplatform.js');
   const { default: aggregateRoutes } = await import('./routes/aggregate.js');
   const { default: priceHistoryRoutes } = await import('./routes/pricehistory.js');
+  const { default: arizonaRoutes } = await import('./routes/arizona.js');
+  const { startAutoScanner } = await import('./lib/autoScanner.js');
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -39,6 +41,7 @@ try {
   app.use('/api/multiplatform', multiplatformRoutes);
   app.use('/api/aggregate', aggregateRoutes);
   app.use('/api/prices', priceHistoryRoutes);
+  app.use('/api/arizona', arizonaRoutes);
 
   // Production: serve static files and SPA fallback
   if (process.env.NODE_ENV === 'production') {
@@ -54,6 +57,9 @@ try {
   app.listen(PORT, () => {
     console.log(`[Resale Terminal] Server running on http://localhost:${PORT}`);
   });
+
+  // Start auto-scanning Arizona events every 6 hours
+  startAutoScanner();
 } catch (err) {
   console.error('\n[Resale Terminal] STARTUP ERROR — the server failed to start.\n');
   if (err.message && err.message.includes('better-sqlite3')) {

@@ -6,6 +6,7 @@ import Inventory from './pages/Inventory';
 import PnL from './pages/PnL';
 import Alerts from './pages/Alerts';
 import Settings from './pages/Settings';
+import Arizona from './pages/Arizona';
 
 function SettingsRedirect() {
   const navigate = useNavigate();
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/pnl" element={<PnL />} />
         <Route path="/alerts" element={<Alerts />} />
+        <Route path="/arizona" element={<Arizona />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </Layout>
