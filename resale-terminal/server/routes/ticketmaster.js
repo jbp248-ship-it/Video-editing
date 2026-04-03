@@ -23,15 +23,13 @@ router.get('/events', async (req, res) => {
     const response = await fetch(url);
 
     if (!response.ok) {
-      const text = await response.text();
-      return res.status(response.status).json({ error: 'Ticketmaster API error', details: text });
+      return res.status(response.status).json({ error: `Ticketmaster API error: ${response.statusText}` });
     }
 
     const data = await response.json();
     res.json(data);
   } catch (err) {
-    console.error('Ticketmaster proxy error:', err);
-    res.status(500).json({ error: 'Failed to fetch from Ticketmaster' });
+    res.status(500).json({ error: err.message });
   }
 });
 

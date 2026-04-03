@@ -9,8 +9,7 @@ router.get('/', (req, res) => {
     const rows = db.prepare('SELECT * FROM inventory ORDER BY event_date ASC').all();
     res.json(rows);
   } catch (err) {
-    console.error('Error fetching inventory:', err);
-    res.status(500).json({ error: 'Failed to fetch inventory' });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -18,24 +17,24 @@ router.get('/', (req, res) => {
 router.get('/summary', (req, res) => {
   try {
     const totalInvested = db.prepare(
-      `SELECT COALESCE(SUM(purchase_price * quantity), 0) AS value FROM inventory WHERE sold_at IS NULL`
+      `SELECT COALESCE(SUM(purchase_price * quantity), 0) AS value FROM inventory WHERE sold_price IS NULL`
     ).get().value;
 
     const currentValue = db.prepare(
-      `SELECT COALESCE(SUM(COALESCE(current_value, purchase_price) * quantity), 0) AS value FROM inventory WHERE sold_at IS NULL`
+      `SELECT COALESCE(SUM(COALESCE(current_value, purchase_price) * quantity), 0) AS value FROM inventory WHERE sold_price IS NULL`
     ).get().value;
 
     const realizedProfit = db.prepare(
-      `SELECT COALESCE(SUM((sold_price - purchase_price) * quantity), 0) AS value FROM inventory WHERE sold_at IS NOT NULL`
+      `SELECT COALESCE(SUM((sold_price - purchase_price) * quantity), 0) AS value FROM inventory WHERE sold_price IS NOT NULL`
     ).get().value;
 
     const totalItems = db.prepare(
-      `SELECT COUNT(*) AS count FROM inventory`
-    ).get().count;
+      `SELECT COUNT(*) AS value FROM inventory`
+    ).get().value;
 
     const soldItems = db.prepare(
-      `SELECT COUNT(*) AS count FROM inventory WHERE sold_at IS NOT NULL`
-    ).get().count;
+      `SELECT COUNT(*) AS value FROM inventory WHERE sold_price IS NOT NULL`
+    ).get().value;
 
     res.json({
       totalInvested,
@@ -45,8 +44,7 @@ router.get('/summary', (req, res) => {
       soldItems,
     });
   } catch (err) {
-    console.error('Error fetching summary:', err);
-    res.status(500).json({ error: 'Failed to fetch inventory summary' });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -55,7 +53,7 @@ router.post('/', (req, res) => {
   try {
     const { event_name, event_date, venue, seat_location, quantity, purchase_price, current_value, seatgeek_event_id } = req.body;
 
-    if (!event_name || purchase_price == null) {
+    if (!event_name || purchase_price === undefined || purchase_price === null) {
       return res.status(400).json({ error: 'event_name and purchase_price are required' });
     }
 
@@ -78,8 +76,7 @@ router.post('/', (req, res) => {
     const newItem = db.prepare('SELECT * FROM inventory WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json(newItem);
   } catch (err) {
-    console.error('Error creating inventory item:', err);
-    res.status(500).json({ error: 'Failed to create inventory item' });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -108,7 +105,7 @@ router.put('/:id', (req, res) => {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
-    updates.push("updated_at = datetime('now')");
+    updates.push(`updated_at = datetime('now')`);
     values.push(id);
 
     db.prepare(`UPDATE inventory SET ${updates.join(', ')} WHERE id = ?`).run(...values);
@@ -116,8 +113,7 @@ router.put('/:id', (req, res) => {
     const updated = db.prepare('SELECT * FROM inventory WHERE id = ?').get(id);
     res.json(updated);
   } catch (err) {
-    console.error('Error updating inventory item:', err);
-    res.status(500).json({ error: 'Failed to update inventory item' });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -134,8 +130,7 @@ router.delete('/:id', (req, res) => {
     db.prepare('DELETE FROM inventory WHERE id = ?').run(id);
     res.json({ message: 'Item deleted', id: Number(id) });
   } catch (err) {
-    console.error('Error deleting inventory item:', err);
-    res.status(500).json({ error: 'Failed to delete inventory item' });
+    res.status(500).json({ error: err.message });
   }
 });
 

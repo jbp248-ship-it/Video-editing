@@ -2,7 +2,7 @@ import { Router } from 'express';
 
 const router = Router();
 
-// POST /api/ai/recommend — get AI-powered resale recommendation
+// POST /api/ai/recommend — get AI-powered ticket recommendation
 router.post('/recommend', async (req, res) => {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -20,7 +20,7 @@ router.post('/recommend', async (req, res) => {
 SeatGeek Price: $${seatgeekPrice || 'N/A'}
 Ticketmaster Price: $${ticketmasterPrice || 'N/A'}
 Demand Score: ${demandScore || 'N/A'}/100
-Price Spread: ${spread != null ? `$${spread}` : 'N/A'}`;
+Price Spread: ${spread || 'N/A'}%`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -40,14 +40,13 @@ Price Spread: ${spread != null ? `$${spread}` : 'N/A'}`;
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      console.error('Anthropic API error:', text);
-      return res.status(response.status).json({ error: 'Anthropic API error', details: text });
+      const errorBody = await response.text();
+      return res.status(response.status).json({ error: `Anthropic API error: ${response.statusText}`, details: errorBody });
     }
 
     const data = await response.json();
 
-    // Extract the text content from the response
+    // Extract text content from Anthropic response
     const textContent = data.content?.find((block) => block.type === 'text');
     if (!textContent) {
       return res.status(500).json({ error: 'No text content in AI response' });
@@ -57,8 +56,10 @@ Price Spread: ${spread != null ? `$${spread}` : 'N/A'}`;
     const recommendation = JSON.parse(textContent.text);
     res.json(recommendation);
   } catch (err) {
-    console.error('AI recommendation error:', err);
-    res.status(500).json({ error: 'Failed to get AI recommendation' });
+    if (err instanceof SyntaxError) {
+      return res.status(500).json({ error: 'Failed to parse AI response as JSON' });
+    }
+    res.status(500).json({ error: err.message });
   }
 });
 
