@@ -48,11 +48,11 @@ Set-Location $InstallDir
 npm install
 Write-Host "  Packages ready." -ForegroundColor Green
 
-# Step 4: Restore or create .env (keys are set inside the app)
+# Step 4: Restore or create .env (use .NET to avoid PowerShell BOM issues)
 if ($existingEnv) {
-    $existingEnv | Out-File "$InstallDir\.env" -Encoding utf8 -NoNewline
+    [System.IO.File]::WriteAllText("$InstallDir\.env", $existingEnv)
 } elseif (-Not (Test-Path "$InstallDir\.env")) {
-    "PORT=3001" | Out-File "$InstallDir\.env" -Encoding utf8
+    [System.IO.File]::WriteAllText("$InstallDir\.env", "PORT=3001`n")
 }
 
 # Step 5: Create Desktop shortcut
