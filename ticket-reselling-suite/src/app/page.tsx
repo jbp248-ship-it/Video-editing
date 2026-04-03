@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { InventoryTable } from "@/components/InventoryTable";
-import { AlertPanel } from "@/components/AlertPanel";
 import { SalesHistory } from "@/components/SalesHistory";
 import { CSVImport } from "@/components/CSVImport";
 import { UnifiedSearch } from "@/components/UnifiedSearch";
