@@ -13,6 +13,8 @@ try {
   const { default: settingsRoutes } = await import('./routes/settings.js');
   const { default: supplyRoutes } = await import('./routes/supply.js');
   const { default: multiplatformRoutes } = await import('./routes/multiplatform.js');
+  const { default: aggregateRoutes } = await import('./routes/aggregate.js');
+  const { default: priceHistoryRoutes } = await import('./routes/pricehistory.js');
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -35,6 +37,8 @@ try {
   app.use('/api/settings', settingsRoutes);
   app.use('/api/supply', supplyRoutes);
   app.use('/api/multiplatform', multiplatformRoutes);
+  app.use('/api/aggregate', aggregateRoutes);
+  app.use('/api/prices', priceHistoryRoutes);
 
   // Production: serve static files and SPA fallback
   if (process.env.NODE_ENV === 'production') {

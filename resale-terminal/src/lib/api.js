@@ -28,4 +28,8 @@ export const api = {
     if (seatgeekEventId) params.set('seatgeek_event_id', seatgeekEventId);
     return request(`/api/supply?${params}`);
   },
+  getAggregateEvent: (q) => request(`/api/aggregate/event?q=${encodeURIComponent(q)}`),
+  savePriceSnapshot: (data) => request('/api/prices/snapshot', { method: 'POST', body: JSON.stringify(data) }),
+  getPriceHistory: (eventKey) => request(`/api/prices/history?event=${encodeURIComponent(eventKey)}`),
+  getPriceTrend: (eventKey) => request(`/api/prices/trend?event=${encodeURIComponent(eventKey)}`),
 };

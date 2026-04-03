@@ -187,6 +187,21 @@ export function useSearch() {
 
       const merged = mergeResults(sgResult, tmResult);
       setResults(merged);
+
+      // Save price snapshots in the background for trend tracking
+      for (const evt of merged) {
+        if (evt.seatgeekPrice || evt.listingCount) {
+          const eventKey = `${evt.name}::${evt.venue}`;
+          api.savePriceSnapshot({
+            eventKey,
+            seatgeekFloor: evt.seatgeekPrice,
+            seatgeekAvg: evt.seatgeekAvgPrice,
+            seatgeekHigh: evt.seatgeekHighPrice,
+            listingCount: evt.listingCount,
+            demandScore: evt.demandScore,
+          }).catch(() => {}); // fire-and-forget
+        }
+      }
     } catch (err) {
       setError(err.message || 'Search failed');
       setResults([]);

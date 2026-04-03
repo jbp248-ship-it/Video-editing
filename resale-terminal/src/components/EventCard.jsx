@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Calendar, MapPin, Loader2, Tag, Building2, Users, BarChart3 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Calendar, MapPin, Loader2, Tag, Building2, Users, BarChart3, TrendingUp, TrendingDown } from 'lucide-react';
 import AIThesis from './AIThesis';
 import AIBadge from './AIBadge';
 import { formatCurrency, formatDate } from '../lib/format';
@@ -112,9 +112,61 @@ function PriceCell({ label, value, highlight }) {
   );
 }
 
+function PriceTrendIndicator({ trend }) {
+  if (!trend || trend.priceTrend === 'Insufficient Data') {
+    return <span className="text-xs text-slate-500">Price: tracking...</span>;
+  }
+  const isRising = trend.priceTrend === 'Rising';
+  const isFalling = trend.priceTrend === 'Falling';
+  const color = isRising ? 'text-emerald-400' : isFalling ? 'text-red-400' : 'text-slate-400';
+  const arrow = isRising ? '\u2191' : isFalling ? '\u2193' : '\u2192';
+  return (
+    <span className={`text-xs font-medium ${color}`}>
+      Price: {arrow} {trend.priceTrend} {trend.priceChange7d || ''}
+    </span>
+  );
+}
+
+function SupplyTrendIndicator({ trend }) {
+  if (!trend || trend.supplyTrend === 'Insufficient Data') {
+    return null;
+  }
+  const isDecreasing = trend.supplyTrend === 'Decreasing';
+  const isIncreasing = trend.supplyTrend === 'Increasing';
+  // Decreasing supply = green (good for resale), Increasing = red
+  const color = isDecreasing ? 'text-emerald-400' : isIncreasing ? 'text-red-400' : 'text-slate-400';
+  const arrow = isDecreasing ? '\u2193' : isIncreasing ? '\u2191' : '\u2192';
+  return (
+    <span className={`text-xs font-medium ${color}`}>
+      Supply: {arrow} {trend.supplyTrend}
+    </span>
+  );
+}
+
 export default function EventCard({ event }) {
   const [aiResult, setAiResult] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [trendData, setTrendData] = useState(null);
+
+  // Fetch trend data and save snapshot on mount/update
+  useEffect(() => {
+    const eventKey = `${event.name}::${event.venue}`;
+    // Save snapshot in background
+    if (event.seatgeekPrice || event.listingCount) {
+      api.savePriceSnapshot({
+        eventKey,
+        seatgeekFloor: event.seatgeekPrice,
+        seatgeekAvg: event.seatgeekAvgPrice,
+        seatgeekHigh: event.seatgeekHighPrice,
+        listingCount: event.listingCount,
+        demandScore: event.demandScore,
+      }).catch(() => {});
+    }
+    // Fetch trend
+    api.getPriceTrend(eventKey)
+      .then(data => setTrendData(data))
+      .catch(() => {});
+  }, [event.name, event.venue, event.seatgeekPrice, event.listingCount]);
 
   const handleAnalyze = async () => {
     setAiLoading(true);
@@ -138,6 +190,10 @@ export default function EventCard({ event }) {
         popularity: event.popularity,
         demand_score: event.demandScore,
         sellout_likelihood: event.selloutLikelihood,
+        price_trend: trendData?.priceTrend || null,
+        supply_trend: trendData?.supplyTrend || null,
+        price_change_7d: trendData?.priceChange7d || null,
+        supply_change_7d: trendData?.supplyChange7d || null,
       });
       setAiResult(result);
     } catch {
@@ -228,6 +284,11 @@ export default function EventCard({ event }) {
           venueCapacity={event.venueCapacity}
         />
         <DemandBar score={event.demandScore} />
+        {/* Trend Indicators */}
+        <div className="flex items-center gap-3 mt-1">
+          <PriceTrendIndicator trend={trendData} />
+          <SupplyTrendIndicator trend={trendData} />
+        </div>
       </div>
 
       {/* AI Section */}
