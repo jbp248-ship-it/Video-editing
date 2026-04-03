@@ -188,7 +188,19 @@ export function InventoryTable({ items, onRecordSale }: InventoryTableProps) {
                           e.currentTarget.style.backgroundColor = "rgba(217, 119, 6, 0.1)";
                         }}
                       >
-                        Record Sale
+                        Mark as Sold
+                      </button>
+                    )}
+                    {item.status === "IN_HAND" && (
+                      <button
+                        onClick={() => onRecordSale(item.id)}
+                        className="rounded-md px-2.5 py-1 text-xs font-semibold transition-all duration-150"
+                        style={{
+                          backgroundColor: "rgba(217, 119, 6, 0.08)",
+                          color: "#b45309",
+                        }}
+                      >
+                        Mark as Sold
                       </button>
                     )}
                     {item.status === "PENDING_REMOVAL" && (
