@@ -7,7 +7,7 @@ echo.
 cd /d "%~dp0"
 
 echo Installing dependencies...
-call npm install --ignore-scripts
+call npm install
 
 echo.
 echo Setting up database...

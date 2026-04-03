@@ -34,7 +34,7 @@ call npx prisma db push --accept-data-loss 2>nul
 :: Create desktop shortcut
 echo   [4/4] Creating desktop shortcut...
 set SHORTCUT=%USERPROFILE%\Desktop\TicketReselling.lnk
-set TARGET=%~dp0TicketReselling.bat
+set TARGET=%~dp0TicketReselling.vbs
 set ICON=%~dp0public\icon.png
 
 powershell -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT%'); $s.TargetPath = '%TARGET%'; $s.WorkingDirectory = '%~dp0'; $s.Description = 'TicketReselling - Ticket Reselling Suite'; $s.Save()"

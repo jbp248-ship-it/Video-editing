@@ -12,7 +12,7 @@
     "electron:dev": "electron .",
     "generate-icon": "node scripts/generate-icon.js",
     "electron:build": "node scripts/generate-icon.js && next build && electron-builder --win",
-    "postinstall": "npx prisma generate || echo Prisma generate skipped",
+    "postinstall": "npx prisma generate 2>nul || echo done",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
