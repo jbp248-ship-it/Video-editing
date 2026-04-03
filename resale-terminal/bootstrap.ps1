@@ -21,15 +21,25 @@ if (-Not (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Host "  Node.js ready." -ForegroundColor Green
 }
 
-# Step 2: Download the app
+# Step 2: Kill any leftover node processes, then download the app
+Get-Process -Name "node" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+
 Write-Host "  Downloading Resale Terminal..." -ForegroundColor Yellow
 $zip = "$env:TEMP\resale-terminal.zip"
 Invoke-WebRequest "https://github.com/jbp248-ship-it/Video-editing/archive/refs/heads/claude/build-resale-terminal-pwa-w5lbc.zip" -OutFile $zip -UseBasicParsing
 Expand-Archive $zip "$env:TEMP\rt-extract" -Force
 Remove-Item $zip -Force
-if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force }
+
+# Preserve existing .env if present
+$existingEnv = $null
+if (Test-Path "$InstallDir\.env") {
+    $existingEnv = Get-Content "$InstallDir\.env" -Raw
+}
+
+if (Test-Path $InstallDir) { Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue }
 Move-Item "$env:TEMP\rt-extract\*\resale-terminal" $InstallDir
-Remove-Item "$env:TEMP\rt-extract" -Recurse -Force
+Remove-Item "$env:TEMP\rt-extract" -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "  App downloaded." -ForegroundColor Green
 
 # Step 3: Install npm packages
@@ -38,8 +48,10 @@ Set-Location $InstallDir
 npm install --silent 2>$null
 Write-Host "  Packages ready." -ForegroundColor Green
 
-# Step 4: Create blank .env (keys are set inside the app)
-if (-Not (Test-Path "$InstallDir\.env")) {
+# Step 4: Restore or create .env (keys are set inside the app)
+if ($existingEnv) {
+    $existingEnv | Out-File "$InstallDir\.env" -Encoding utf8 -NoNewline
+} elseif (-Not (Test-Path "$InstallDir\.env")) {
     "PORT=3001" | Out-File "$InstallDir\.env" -Encoding utf8
 }
 
