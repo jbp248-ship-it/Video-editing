@@ -1,11 +1,12 @@
 import { Router } from 'express';
+import { getKey } from '../lib/getKey.js';
 
 const router = Router();
 
 // GET /api/ticketmaster/events — proxy to Ticketmaster Discovery API
 router.get('/events', async (req, res) => {
   try {
-    const apiKey = process.env.TICKETMASTER_API_KEY;
+    const apiKey = getKey('TICKETMASTER_API_KEY');
     if (!apiKey) {
       return res.json({ _embedded: { events: [] } });
     }

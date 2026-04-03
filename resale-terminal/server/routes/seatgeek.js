@@ -1,11 +1,12 @@
 import { Router } from 'express';
+import { getKey } from '../lib/getKey.js';
 
 const router = Router();
 
 // GET /api/seatgeek/events — proxy to SeatGeek API
 router.get('/events', async (req, res) => {
   try {
-    const clientId = process.env.SEATGEEK_CLIENT_ID;
+    const clientId = getKey('SEATGEEK_CLIENT_ID');
     if (!clientId) {
       return res.json({ events: [] });
     }
@@ -33,7 +34,7 @@ router.get('/events', async (req, res) => {
 // GET /api/seatgeek/event/:id — fetch a single event by ID with full details
 router.get('/event/:id', async (req, res) => {
   try {
-    const clientId = process.env.SEATGEEK_CLIENT_ID;
+    const clientId = getKey('SEATGEEK_CLIENT_ID');
     if (!clientId) {
       return res.status(500).json({ error: 'SEATGEEK_CLIENT_ID not configured' });
     }

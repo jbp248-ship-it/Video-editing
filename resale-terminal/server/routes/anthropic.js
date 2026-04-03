@@ -1,13 +1,14 @@
 import { Router } from 'express';
+import { getKey } from '../lib/getKey.js';
 
 const router = Router();
 
 // POST /api/ai/recommend — get AI-powered ticket resale investment analysis
 router.post('/recommend', async (req, res) => {
   try {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = getKey('ANTHROPIC_API_KEY');
     if (!apiKey) {
-      return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
+      return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured. Save your key in Settings and try again.' });
     }
 
     // Accept both camelCase and snake_case field names
