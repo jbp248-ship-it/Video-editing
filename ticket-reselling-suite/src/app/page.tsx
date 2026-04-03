@@ -6,11 +6,100 @@ import { InventoryTable } from "@/components/InventoryTable";
 import { AlertPanel } from "@/components/AlertPanel";
 import { SalesHistory } from "@/components/SalesHistory";
 import { CSVImport } from "@/components/CSVImport";
-import { MarketIntel } from "@/components/MarketIntel";
-import { EnhancedDashboard } from "@/components/EnhancedDashboard";
-import type { DashboardStats } from "@/types";
 
-// ─── Platform fee defaults ────────────────────────────────────────────────────
+// ─── Placeholder for UnifiedSearch (will be created by another agent) ────────
+function UnifiedSearch() {
+  return (
+    <div className="card p-8 text-center text-warm-500">
+      Search coming soon...
+    </div>
+  );
+}
+
+// ─── Simple Dashboard ────────────────────────────────────────────────────────
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="card p-4">
+      <p className="text-xs text-warm-500 mb-1">{label}</p>
+      <p className="text-2xl font-bold text-warm-900">{value}</p>
+    </div>
+  );
+}
+
+function SimpleDashboard({
+  inventory,
+  alerts,
+  onRecordSale,
+}: {
+  inventory: any[];
+  alerts: any[];
+  onRecordSale: (id: string) => void;
+}) {
+  const activeTickets = inventory.filter(
+    (i: any) => i.status === "IN_HAND" || i.status === "LISTED"
+  );
+  const totalInvested = activeTickets.reduce(
+    (s: number, i: any) => s + (i.purchasePrice ?? 0) * (i.quantity ?? 0),
+    0
+  );
+  const totalListed = activeTickets.filter(
+    (i: any) => i.status === "LISTED"
+  ).length;
+  const unreadAlerts = alerts.filter((a: any) => !a.read);
+
+  return (
+    <div className="space-y-6">
+      {/* 4 stat cards */}
+      <div className="grid grid-cols-4 gap-4">
+        <StatCard
+          label="Active Tickets"
+          value={String(
+            activeTickets.reduce((s: number, i: any) => s + (i.quantity ?? 0), 0)
+          )}
+        />
+        <StatCard label="Total Invested" value={`$${totalInvested.toFixed(2)}`} />
+        <StatCard label="Listed" value={String(totalListed)} />
+        <StatCard label="Unread Alerts" value={String(unreadAlerts.length)} />
+      </div>
+
+      {/* Recent alerts */}
+      {unreadAlerts.length > 0 && (
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold text-warm-900 mb-3">
+            Recent Alerts
+          </h3>
+          <div className="space-y-2">
+            {unreadAlerts.slice(0, 3).map((a: any) => (
+              <div
+                key={a.id}
+                className="text-sm text-warm-700 py-1 border-b border-warm-100 last:border-0"
+              >
+                {a.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Quick inventory preview */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold text-warm-900 mb-3">
+          Your Tickets
+        </h3>
+        {activeTickets.length > 0 ? (
+          <InventoryTable
+            items={activeTickets.slice(0, 5)}
+            onRecordSale={onRecordSale}
+          />
+        ) : (
+          <p className="text-sm text-warm-400">No active tickets yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Platform fee defaults ───────────────────────────────────────────────────
 const PLATFORM_FEES: { key: string; label: string; defaultFee: number }[] = [
   { key: "fee_STUBHUB", label: "StubHub", defaultFee: 15 },
   { key: "fee_TICKETMASTER", label: "Ticketmaster", defaultFee: 12 },
@@ -22,7 +111,7 @@ const PLATFORM_FEES: { key: string; label: string; defaultFee: number }[] = [
   { key: "fee_GAMETIME", label: "Gametime", defaultFee: 10 },
 ];
 
-// ─── Settings Panel ───────────────────────────────────────────────────────────
+// ─── Settings Panel ──────────────────────────────────────────────────────────
 function SettingsPanel() {
   const [fees, setFees] = useState<Record<string, string>>(() => {
     const defaults: Record<string, string> = {};
@@ -75,7 +164,7 @@ function SettingsPanel() {
   };
 
   // ── Update state ──
-  const [updateStatus, setUpdateStatus] = useState<string>("idle"); // idle | checking | available | updating | done | error
+  const [updateStatus, setUpdateStatus] = useState<string>("idle");
   const [updateError, setUpdateError] = useState<string | null>(null);
 
   const checkForUpdate = async () => {
@@ -160,114 +249,121 @@ function SettingsPanel() {
               <button className="btn-primary" onClick={checkForUpdate}>
                 Retry
               </button>
-              {updateError && <span className="text-xs text-red-600">{updateError}</span>}
+              {updateError && (
+                <span className="text-xs text-red-600">{updateError}</span>
+              )}
             </>
           )}
           {updateStatus === "idle" && (
-            <span className="text-xs text-green-600">You&apos;re up to date</span>
+            <span className="text-xs text-green-600">
+              You&apos;re up to date
+            </span>
           )}
         </div>
         {updateStatus === "done" && (
           <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-            Update downloaded! Click &quot;Restart to Apply Update&quot; to use the latest version.
+            Update downloaded! Click &quot;Restart to Apply Update&quot; to use
+            the latest version.
           </div>
         )}
       </div>
 
       {/* ── Fee Configuration ── */}
       <div className="card space-y-6">
-      <h2 className="text-lg font-semibold text-warm-900">Fee Configuration</h2>
-      <p className="text-sm text-warm-500">
-        Adjust platform fee percentages to match your seller tier. Changes are
-        saved per platform.
-      </p>
-      {loadError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Could not load saved settings: {loadError}
-        </div>
-      )}
-      {saveError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Could not save setting: {saveError}
-        </div>
-      )}
-      <div className="space-y-3">
-        {PLATFORM_FEES.map((p) => (
-          <div
-            key={p.key}
-            className="flex items-center justify-between py-3 border-b border-warm-200 gap-4"
-          >
-            <span className="font-medium text-warm-900 w-36 shrink-0">
-              {p.label}
-            </span>
-            <div className="flex items-center gap-2 flex-1">
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                className="w-24 rounded-lg border border-warm-200 bg-warm-50 px-3 py-1.5 text-sm text-warm-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20 text-right"
-                value={fees[p.key] ?? String(p.defaultFee)}
-                onChange={(e) =>
-                  setFees((prev) => ({ ...prev, [p.key]: e.target.value }))
-                }
-              />
-              <span className="text-sm text-warm-500">%</span>
-            </div>
-            <button
-              className={
-                savedKeys[p.key]
-                  ? "btn-ghost text-xs text-green-600 border-green-200"
-                  : "btn-primary text-xs"
-              }
-              disabled={saving[p.key]}
-              onClick={() => handleSave(p.key)}
-            >
-              {savedKeys[p.key] ? "Saved!" : saving[p.key] ? "Saving\u2026" : "Save"}
-            </button>
+        <h2 className="text-lg font-semibold text-warm-900">
+          Fee Configuration
+        </h2>
+        <p className="text-sm text-warm-500">
+          Adjust platform fee percentages to match your seller tier. Changes are
+          saved per platform.
+        </p>
+        {loadError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Could not load saved settings: {loadError}
           </div>
-        ))}
-      </div>
+        )}
+        {saveError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Could not save setting: {saveError}
+          </div>
+        )}
+        <div className="space-y-3">
+          {PLATFORM_FEES.map((p) => (
+            <div
+              key={p.key}
+              className="flex items-center justify-between py-3 border-b border-warm-200 gap-4"
+            >
+              <span className="font-medium text-warm-900 w-36 shrink-0">
+                {p.label}
+              </span>
+              <div className="flex items-center gap-2 flex-1">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  className="w-24 rounded-lg border border-warm-200 bg-warm-50 px-3 py-1.5 text-sm text-warm-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20 text-right"
+                  value={fees[p.key] ?? String(p.defaultFee)}
+                  onChange={(e) =>
+                    setFees((prev) => ({ ...prev, [p.key]: e.target.value }))
+                  }
+                />
+                <span className="text-sm text-warm-500">%</span>
+              </div>
+              <button
+                className={
+                  savedKeys[p.key]
+                    ? "btn-ghost text-xs text-green-600 border-green-200"
+                    : "btn-primary text-xs"
+                }
+                disabled={saving[p.key]}
+                onClick={() => handleSave(p.key)}
+              >
+                {savedKeys[p.key]
+                  ? "Saved!"
+                  : saving[p.key]
+                    ? "Saving\u2026"
+                    : "Save"}
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
+// ─── Tab titles ──────────────────────────────────────────────────────────────
 const TAB_TITLES: Record<string, string> = {
   dashboard: "Dashboard",
-  market: "Market Intelligence",
-  inventory: "Inventory Management",
-  sales: "Sales & Profit/Loss",
-  alerts: "Alerts",
+  search: "Search",
+  inventory: "My Tickets",
   settings: "Settings",
 };
 
+// ─── Main Page ───────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("dashboard");
 
-  // Auto-close browser when switching away from browse/market tabs
-  const handleTabChange = useCallback((tab: string) => {
-    // Close BrowserView if leaving a tab that uses it
-    if (activeTab !== tab) {
-      try {
-        const w = window as any;
-        w.ticketOps?.closeBrowser?.();
-      } catch {}
-    }
-    setActiveTab(tab);
-  }, [activeTab]);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleTabChange = useCallback(
+    (tab: string) => {
+      if (activeTab !== tab) {
+        try {
+          const w = window as any;
+          w.ticketOps?.closeBrowser?.();
+        } catch {}
+      }
+      setActiveTab(tab);
+    },
+    [activeTab]
+  );
+
   const [inventory, setInventory] = useState<any[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [alerts, setAlerts] = useState<any[]>([]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [snapshots, setSnapshots] = useState<any[]>([]);
   const [alertCount, setAlertCount] = useState(0);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [inventoryFilter, setInventoryFilter] = useState("ALL");
-  const [searchQuery, setSearchQuery] = useState("");
   const [saleModal, setSaleModal] = useState<string | null>(null);
   const [saleForm, setSaleForm] = useState({
     price: "",
@@ -278,22 +374,18 @@ export default function DashboardPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [dashRes, invRes, alertRes, snapRes] = await Promise.all([
+      const [dashRes, invRes, alertRes] = await Promise.all([
         fetch("/api/dashboard"),
         fetch("/api/inventory"),
         fetch("/api/alerts"),
-        fetch("/api/snapshots?days=30").catch(() => null),
       ]);
 
       if (dashRes.ok) {
         const dashData = await dashRes.json();
-        setStats(dashData);
         setAlertCount(dashData.unreadAlerts ?? 0);
       }
       if (invRes.ok) setInventory(await invRes.json());
       if (alertRes.ok) setAlerts(await alertRes.json());
-      if (snapRes?.ok) setSnapshots(await snapRes.json());
-      // Auto-check floor price alerts on load
       fetch("/api/alerts/floor-check", { method: "POST" }).catch(() => {});
       setFetchError(null);
     } catch (err) {
@@ -383,20 +475,37 @@ export default function DashboardPage() {
       />
 
       <main className="flex-1 overflow-y-auto">
-        {/* Top Bar */}
+        {/* Top Bar — clean, no search bar */}
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-warm-200 bg-white/80 backdrop-blur px-6">
-          <h1 className="text-lg font-semibold capitalize text-warm-900">
+          <h1 className="text-lg font-semibold text-warm-900">
             {TAB_TITLES[activeTab] ?? activeTab}
           </h1>
-          <div className="flex items-center gap-4">
-            <input
-              type="text"
-              placeholder="Search events..."
-              className="rounded-lg border border-warm-200 bg-warm-50 px-3 py-1.5 text-sm text-warm-700 placeholder-warm-400 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500/20 w-64"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            <button className="btn-primary" onClick={() => handleTabChange("inventory")}>+ Add Tickets</button>
+          <div className="flex items-center gap-3">
+            {alertCount > 0 && (
+              <button
+                className="relative btn-ghost text-xs"
+                onClick={() => handleTabChange("dashboard")}
+                title="View alerts on dashboard"
+              >
+                <svg
+                  className="h-5 w-5 text-warm-500"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+                </svg>
+                <span
+                  className="absolute -top-1 -right-1 rounded-full px-1 py-0.5 text-[9px] font-bold text-white leading-none"
+                  style={{
+                    backgroundColor: "#DC2626",
+                    minWidth: "14px",
+                    textAlign: "center",
+                  }}
+                >
+                  {alertCount > 99 ? "99+" : alertCount}
+                </span>
+              </button>
+            )}
           </div>
         </header>
 
@@ -418,29 +527,37 @@ export default function DashboardPage() {
 
           {/* Dashboard */}
           {activeTab === "dashboard" && (
-            <EnhancedDashboard
-              snapshots={snapshots}
+            <SimpleDashboard
               inventory={inventory}
               alerts={alerts}
               onRecordSale={handleRecordSale}
-              onNavigate={handleTabChange}
-              onDismissAlerts={handleDismissAlerts}
-              onMarkRead={handleMarkRead}
             />
           )}
 
-          {/* Market Intel (Browse + Scan + Velocity + FLARE) */}
-          {activeTab === "market" && <MarketIntel />}
+          {/* Search */}
+          {activeTab === "search" && <UnifiedSearch />}
 
           {/* Inventory */}
           {activeTab === "inventory" && (
             <>
               <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  {["ALL", "IN_HAND", "LISTED", "PENDING_REMOVAL", "SOLD", "TRANSFERRED", "EXPIRED"].map((s) => (
+                <div className="flex items-center gap-3 flex-wrap">
+                  {[
+                    "ALL",
+                    "IN_HAND",
+                    "LISTED",
+                    "PENDING_REMOVAL",
+                    "SOLD",
+                    "TRANSFERRED",
+                    "EXPIRED",
+                  ].map((s) => (
                     <button
                       key={s}
-                      className={inventoryFilter === s ? "btn-primary text-xs" : "btn-ghost text-xs"}
+                      className={
+                        inventoryFilter === s
+                          ? "btn-primary text-xs"
+                          : "btn-ghost text-xs"
+                      }
                       onClick={() => setInventoryFilter(s)}
                     >
                       {s.replace(/_/g, " ")}
@@ -458,25 +575,19 @@ export default function DashboardPage() {
                 <CSVImport />
               ) : (
                 <InventoryTable
-                  items={(inventoryFilter === "ALL" ? inventory : inventory.filter((item: any) => item.status === inventoryFilter))
-                    .filter((item: any) => !searchQuery || item.event?.name?.toLowerCase().includes(searchQuery.toLowerCase()) || item.section?.toLowerCase().includes(searchQuery.toLowerCase()))
+                  items={
+                    inventoryFilter === "ALL"
+                      ? inventory
+                      : inventory.filter(
+                          (item: any) => item.status === inventoryFilter
+                        )
                   }
                   onRecordSale={handleRecordSale}
                 />
               )}
-            </>
-          )}
-
-          {/* Sales & P/L */}
-          {activeTab === "sales" && (
-            <div className="space-y-6">
+              {/* Sales history below inventory */}
               <SalesHistory />
-            </div>
-          )}
-
-          {/* Alerts (accessible from bell icon) */}
-          {activeTab === "alerts" && (
-            <AlertPanel alerts={alerts} onDismiss={handleDismissAlerts} onMarkRead={handleMarkRead} />
+            </>
           )}
 
           {/* Settings */}
@@ -488,7 +599,9 @@ export default function DashboardPage() {
       {saleModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-warm-900/40 backdrop-blur-sm">
           <div className="card w-96 space-y-4 shadow-warm-lg">
-            <h2 className="text-lg font-semibold text-warm-900">Record Sale</h2>
+            <h2 className="text-lg font-semibold text-warm-900">
+              Record Sale
+            </h2>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-warm-500">Platform</label>
@@ -499,13 +612,20 @@ export default function DashboardPage() {
                     setSaleForm({ ...saleForm, platform: e.target.value })
                   }
                 >
-                  {["STUBHUB", "TICKETMASTER", "VIVID_SEATS", "SEATGEEK", "ETIX", "AXS", "TICKPICK", "GAMETIME"].map(
-                    (p) => (
-                      <option key={p} value={p}>
-                        {p.replace(/_/g, " ")}
-                      </option>
-                    )
-                  )}
+                  {[
+                    "STUBHUB",
+                    "TICKETMASTER",
+                    "VIVID_SEATS",
+                    "SEATGEEK",
+                    "ETIX",
+                    "AXS",
+                    "TICKPICK",
+                    "GAMETIME",
+                  ].map((p) => (
+                    <option key={p} value={p}>
+                      {p.replace(/_/g, " ")}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>

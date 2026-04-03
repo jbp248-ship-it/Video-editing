@@ -95,7 +95,7 @@ async function initDatabase() {
   }
 }
 
-function isPortFree(port) {
+function checkPortFree(port) {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.once("error", () => resolve(false));
@@ -104,7 +104,7 @@ function isPortFree(port) {
   });
 }
 
-function killProcessOnPort(port) {
+async function killProcessOnPort(port) {
   if (process.platform === "win32") {
     try {
       const output = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { shell: true, stdio: "pipe" }).toString();
@@ -120,21 +120,31 @@ function killProcessOnPort(port) {
       }
       if (pids.size > 0) {
         console.log(`Killed ${pids.size} stale process(es) on port ${port}`);
-        // Wait a moment for the port to be released
-        const start = Date.now();
-        while (Date.now() - start < 2000) { /* busy wait */ }
+        await new Promise(r => setTimeout(r, 2000));
       }
     } catch {
       // netstat found nothing — port is free
     }
   } else {
     try { execSync(`lsof -ti :${port} | xargs kill -9`, { shell: true, stdio: "pipe" }); } catch {}
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  // Verify port is actually free now, retry if not
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const free = await checkPortFree(port);
+    if (free) return;
+    console.log(`Port ${port} still in use, retry ${attempt + 1}/3...`);
+    if (process.platform === "win32") {
+      try { execSync(`taskkill /F /IM node.exe`, { shell: true, stdio: "pipe" }); } catch {}
+    }
+    await new Promise(r => setTimeout(r, 2000));
   }
 }
 
-function startNextServer() {
+async function startNextServer() {
   // Auto-kill any stale process on the port before starting
-  killProcessOnPort(PORT);
+  await killProcessOnPort(PORT);
 
   const cmd = isDev ? "dev" : "start";
   let stderrOutput = "";
@@ -843,7 +853,7 @@ app.whenReady().then(async () => {
 
   // Boot everything in the background
   await initDatabase();
-  startNextServer();
+  await startNextServer();
 
   try {
     await waitForServer();
@@ -871,6 +881,12 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   killProcessTree(nextProcess);
   nextProcess = null;
+  // Also kill any process on our port to prevent zombies
+  try {
+    if (process.platform === "win32") {
+      execSync(`for /f "tokens=5" %a in ('netstat -ano ^| findstr :${PORT} ^| findstr LISTENING') do taskkill /F /PID %a`, { shell: true, stdio: "pipe" });
+    }
+  } catch {}
   app.quit();
 });
 
@@ -878,4 +894,9 @@ app.on("before-quit", () => {
   if (splashTimeout) { clearTimeout(splashTimeout); splashTimeout = null; }
   killProcessTree(nextProcess);
   nextProcess = null;
+  try {
+    if (process.platform === "win32") {
+      execSync(`for /f "tokens=5" %a in ('netstat -ano ^| findstr :${PORT} ^| findstr LISTENING') do taskkill /F /PID %a`, { shell: true, stdio: "pipe" });
+    }
+  } catch {}
 });
