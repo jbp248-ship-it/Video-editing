@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Calendar, MapPin, Loader2 } from 'lucide-react';
+import { Calendar, MapPin, Loader2, Tag } from 'lucide-react';
+import AIThesis from './AIThesis';
 import AIBadge from './AIBadge';
 import { formatCurrency, formatDate } from '../lib/format';
 import { api } from '../lib/api';
 
-function DemandBar({ score }) {
+function DemandBar({ score, popularity }) {
   const clampedScore = Math.max(0, Math.min(100, score));
   let barColor = 'bg-emerald-400';
   if (clampedScore < 30) barColor = 'bg-red-400';
@@ -23,6 +24,48 @@ function DemandBar({ score }) {
   );
 }
 
+function SupplyIndicator({ listingCount }) {
+  if (listingCount == null) return null;
+
+  let colorClass = 'text-emerald-400';
+  let label = 'Low Supply';
+  if (listingCount > 200) {
+    colorClass = 'text-red-400';
+    label = 'High Supply';
+  } else if (listingCount > 50) {
+    colorClass = 'text-amber-400';
+    label = 'Moderate Supply';
+  }
+
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-1.5">
+        <Tag className="w-3.5 h-3.5 text-slate-500" />
+        <span className="text-xs text-slate-500">Listings</span>
+      </div>
+      <span className={`text-xs font-semibold ${colorClass}`}>
+        {listingCount} available
+        <span className="ml-1 font-normal text-slate-500">({label})</span>
+      </span>
+    </div>
+  );
+}
+
+function PriceCell({ label, value, highlight }) {
+  let textColor = 'text-slate-300';
+  if (highlight === 'green') textColor = 'text-emerald-400';
+  else if (highlight === 'red') textColor = 'text-red-400';
+
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+      <p className={`text-sm font-semibold ${textColor}`}>
+        {formatCurrency(value)}
+      </p>
+    </div>
+  );
+}
+
 export default function EventCard({ event }) {
   const [aiResult, setAiResult] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -32,22 +75,41 @@ export default function EventCard({ event }) {
     try {
       const result = await api.getAIRecommendation({
         event_name: event.name,
-        seatgeek_price: event.seatgeekPrice,
-        ticketmaster_price: event.ticketmasterPrice,
-        demand_score: event.demandScore,
-        seatgeek_score: event.seatgeekScore,
+        venue: event.venue,
         event_date: event.date,
+        seatgeek_price: event.seatgeekPrice,
+        seatgeek_avg_price: event.seatgeekAvgPrice,
+        seatgeek_high_price: event.seatgeekHighPrice,
+        ticketmaster_price: event.ticketmasterPrice,
+        ticketmaster_max_price: event.ticketmasterMaxPrice,
+        listing_count: event.listingCount,
+        seatgeek_score: event.seatgeekScore,
+        popularity: event.popularity,
+        demand_score: event.demandScore,
       });
       setAiResult(result);
     } catch {
       setAiResult({
         recommendation: 'Wait',
         confidence: 0,
-        reasoning: 'Unable to get AI analysis at this time.',
+        reasoning: 'Unable to get AI analysis at this time. Check that the ANTHROPIC_API_KEY is configured.',
+        metrics: {
+          supplyLevel: 'Medium',
+          velocityEstimate: 'Moderate',
+          riskLevel: 'Medium',
+        },
       });
     } finally {
       setAiLoading(false);
     }
+  };
+
+  // Determine price color coding: green if resale > face (profit opportunity), red if resale < face
+  const getFloorHighlight = () => {
+    if (event.seatgeekPrice && event.ticketmasterPrice) {
+      return event.seatgeekPrice > event.ticketmasterPrice ? 'green' : 'red';
+    }
+    return null;
   };
 
   return (
@@ -69,39 +131,42 @@ export default function EventCard({ event }) {
         )}
       </div>
 
-      {/* Prices */}
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div>
-          <p className="text-xs text-slate-500 mb-0.5">Floor (Resale)</p>
-          <p className="text-sm font-semibold text-emerald-400">
-            {formatCurrency(event.seatgeekPrice)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500 mb-0.5">Face (Primary)</p>
-          <p className="text-sm font-semibold text-slate-300">
-            {formatCurrency(event.ticketmasterPrice)}
-          </p>
-        </div>
+      {/* Prices Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+        <PriceCell label="Floor" value={event.seatgeekPrice} highlight={getFloorHighlight()} />
+        <PriceCell label="Avg" value={event.seatgeekAvgPrice} />
+        <PriceCell label="High" value={event.seatgeekHighPrice} />
+        <PriceCell label="Face Value" value={event.ticketmasterPrice} />
+      </div>
+
+      {/* Supply Indicator */}
+      <div className="mb-3">
+        <SupplyIndicator listingCount={event.listingCount} />
       </div>
 
       {/* Demand Score */}
       <div className="mb-3">
         <p className="text-xs text-slate-500 mb-1">Demand Score</p>
-        <DemandBar score={event.demandScore} />
+        <DemandBar score={event.demandScore} popularity={event.popularity} />
       </div>
 
       {/* AI Section */}
       {aiResult && (
-        <div className="mb-3 p-2 bg-slate-900/50 rounded border border-slate-700/50">
-          <div className="flex items-center gap-2 mb-1">
-            <AIBadge
-              recommendation={aiResult.recommendation}
-              confidence={aiResult.confidence}
-            />
-          </div>
-          {aiResult.reasoning && (
-            <p className="text-xs text-slate-400 mt-1">{aiResult.reasoning}</p>
+        <div className="mb-3">
+          {aiResult.metrics ? (
+            <AIThesis result={aiResult} />
+          ) : (
+            <div className="p-2 bg-slate-900/50 rounded border border-slate-700/50">
+              <div className="flex items-center gap-2 mb-1">
+                <AIBadge
+                  recommendation={aiResult.recommendation}
+                  confidence={aiResult.confidence}
+                />
+              </div>
+              {aiResult.reasoning && (
+                <p className="text-xs text-slate-400 mt-1">{aiResult.reasoning}</p>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -116,6 +181,8 @@ export default function EventCard({ event }) {
             <Loader2 className="w-4 h-4 animate-spin" />
             Analyzing...
           </>
+        ) : aiResult ? (
+          'Re-Analyze'
         ) : (
           'Analyze'
         )}

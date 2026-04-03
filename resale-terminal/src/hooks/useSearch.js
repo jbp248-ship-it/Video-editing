@@ -29,13 +29,21 @@ function mergeResults(seatgeekData, ticketmasterData) {
   for (const tm of tmEvents) {
     const name = (tm.name || '').toLowerCase();
     const price = tm.priceRanges?.[0]?.min || null;
-    tmMap.set(name, { price, venue: tm._embedded?.venues?.[0]?.name || '' });
+    const maxPrice = tm.priceRanges?.[0]?.max || null;
+    const venue = tm._embedded?.venues?.[0]?.name || '';
+    const status = tm.dates?.status?.code || null;
+    tmMap.set(name, { price, maxPrice, venue, status });
   }
 
   for (const sg of sgEvents) {
     const name = sg.title || sg.short_title || '';
     const sgPrice = sg.stats?.lowest_price || null;
+    const sgAvgPrice = sg.stats?.average_price || null;
+    const sgHighPrice = sg.stats?.highest_price || null;
+    const sgListingCount = sg.stats?.listing_count || null;
+    const sgVisibleListings = sg.stats?.visible_listing_count || null;
     const sgScore = sg.score || 0;
+    const sgPopularity = sg.popularity || 0;
     const venue = sg.venue?.name || '';
     const date = sg.datetime_local || sg.datetime_utc || '';
     const seatgeekEventId = sg.id;
@@ -43,6 +51,7 @@ function mergeResults(seatgeekData, ticketmasterData) {
     // Try to find matching TM event
     const tmMatch = tmMap.get(name.toLowerCase());
     const tmPrice = tmMatch?.price || null;
+    const tmMaxPrice = tmMatch?.maxPrice || null;
 
     const demandScore = computeDemandScore(sgScore, sgPrice, tmPrice);
 
@@ -52,8 +61,14 @@ function mergeResults(seatgeekData, ticketmasterData) {
       date,
       venue: venue || tmMatch?.venue || '',
       seatgeekPrice: sgPrice,
+      seatgeekAvgPrice: sgAvgPrice,
+      seatgeekHighPrice: sgHighPrice,
       ticketmasterPrice: tmPrice,
+      ticketmasterMaxPrice: tmMaxPrice,
+      listingCount: sgListingCount,
+      visibleListings: sgVisibleListings,
       seatgeekScore: sgScore,
+      popularity: sgPopularity,
       demandScore,
       seatgeekEventId,
     });
@@ -67,14 +82,21 @@ function mergeResults(seatgeekData, ticketmasterData) {
     );
     if (!alreadyAdded) {
       const tmPrice = tm.priceRanges?.[0]?.min || null;
+      const tmMaxPrice = tm.priceRanges?.[0]?.max || null;
       events.push({
         id: tm.id || `tm-${events.length}`,
         name,
         date: tm.dates?.start?.localDate || '',
         venue: tm._embedded?.venues?.[0]?.name || '',
         seatgeekPrice: null,
+        seatgeekAvgPrice: null,
+        seatgeekHighPrice: null,
         ticketmasterPrice: tmPrice,
+        ticketmasterMaxPrice: tmMaxPrice,
+        listingCount: null,
+        visibleListings: null,
         seatgeekScore: 0,
+        popularity: 0,
         demandScore: 10,
         seatgeekEventId: null,
       });

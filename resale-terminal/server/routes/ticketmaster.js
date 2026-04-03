@@ -23,13 +23,23 @@ router.get('/events', async (req, res) => {
     const response = await fetch(url);
 
     if (!response.ok) {
-      return res.status(response.status).json({ error: `Ticketmaster API error: ${response.statusText}` });
+      // Return empty results instead of crashing the frontend
+      console.error(`Ticketmaster API error: ${response.status} ${response.statusText}`);
+      return res.json({ _embedded: { events: [] } });
     }
 
     const data = await response.json();
+
+    // Ensure _embedded.events exists to prevent frontend crashes
+    if (!data._embedded || !data._embedded.events) {
+      return res.json({ _embedded: { events: [] } });
+    }
+
     res.json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Ticketmaster route error:', err.message);
+    // Return empty results instead of 500 to prevent frontend crashes
+    res.json({ _embedded: { events: [] } });
   }
 });
 

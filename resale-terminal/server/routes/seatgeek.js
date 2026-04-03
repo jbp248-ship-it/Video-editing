@@ -30,4 +30,27 @@ router.get('/events', async (req, res) => {
   }
 });
 
+// GET /api/seatgeek/event/:id — fetch a single event by ID with full details
+router.get('/event/:id', async (req, res) => {
+  try {
+    const clientId = process.env.SEATGEEK_CLIENT_ID;
+    if (!clientId) {
+      return res.status(500).json({ error: 'SEATGEEK_CLIENT_ID not configured' });
+    }
+
+    const { id } = req.params;
+    const url = `https://api.seatgeek.com/2/events/${id}?client_id=${clientId}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      return res.status(response.status).json({ error: `SeatGeek API error: ${response.statusText}` });
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
