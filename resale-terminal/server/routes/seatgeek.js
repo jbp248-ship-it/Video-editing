@@ -7,7 +7,7 @@ router.get('/events', async (req, res) => {
   try {
     const clientId = process.env.SEATGEEK_CLIENT_ID;
     if (!clientId) {
-      return res.status(500).json({ error: 'SEATGEEK_CLIENT_ID not configured' });
+      return res.json({ events: [] });
     }
 
     const { q, per_page = 20, id } = req.query;

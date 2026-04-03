@@ -10,17 +10,30 @@ router.post('/recommend', async (req, res) => {
       return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' });
     }
 
-    const { eventName, seatgeekPrice, ticketmasterPrice, demandScore, spread } = req.body;
+    // Accept both camelCase and snake_case field names
+    const eventName = req.body.eventName || req.body.event_name;
+    const seatgeekPrice = req.body.seatgeekPrice ?? req.body.seatgeek_price;
+    const ticketmasterPrice = req.body.ticketmasterPrice ?? req.body.ticketmaster_price;
+    const demandScore = req.body.demandScore ?? req.body.demand_score;
+    const seatgeekScore = req.body.seatgeekScore ?? req.body.seatgeek_score;
+    const eventDate = req.body.eventDate || req.body.event_date;
 
     if (!eventName) {
       return res.status(400).json({ error: 'eventName is required' });
     }
 
+    // Calculate spread if both prices exist
+    const spread = seatgeekPrice && ticketmasterPrice && ticketmasterPrice > 0
+      ? (((seatgeekPrice - ticketmasterPrice) / ticketmasterPrice) * 100).toFixed(1)
+      : 'N/A';
+
     const userMessage = `Event: ${eventName}
-SeatGeek Price: $${seatgeekPrice || 'N/A'}
-Ticketmaster Price: $${ticketmasterPrice || 'N/A'}
+SeatGeek Floor Price: $${seatgeekPrice || 'N/A'}
+Ticketmaster Face Value: $${ticketmasterPrice || 'N/A'}
 Demand Score: ${demandScore || 'N/A'}/100
-Price Spread: ${spread || 'N/A'}%`;
+SeatGeek Popularity: ${seatgeekScore || 'N/A'}
+Event Date: ${eventDate || 'N/A'}
+Price Spread: ${spread}%`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',

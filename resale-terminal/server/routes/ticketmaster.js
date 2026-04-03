@@ -7,7 +7,7 @@ router.get('/events', async (req, res) => {
   try {
     const apiKey = process.env.TICKETMASTER_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'TICKETMASTER_API_KEY not configured' });
+      return res.json({ _embedded: { events: [] } });
     }
 
     const { keyword, size = 20 } = req.query;
