@@ -1,7 +1,22 @@
 import { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { Bell, SlidersHorizontal } from 'lucide-react';
 import AlertCard from '../components/AlertCard';
 import { useSearch } from '../hooks/useSearch';
+
+function isApiKeyError(error) {
+  if (!error) return false;
+  const msg = error.toLowerCase();
+  return (
+    msg.includes('401') ||
+    msg.includes('403') ||
+    msg.includes('unauthorized') ||
+    msg.includes('forbidden') ||
+    msg.includes('invalid api key') ||
+    msg.includes('api key') ||
+    msg.includes('authentication')
+  );
+}
 
 export default function Alerts() {
   const { results, loading, error, search } = useSearch();
@@ -108,11 +123,18 @@ export default function Alerts() {
         ))}
       </div>
 
-      {error && (
+      {error && isApiKeyError(error) ? (
+        <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300 text-sm flex items-center gap-2">
+          <span>Add your API keys in Settings to enable live data.</span>
+          <Link to="/settings" className="underline hover:text-amber-200 whitespace-nowrap">
+            Go to Settings
+          </Link>
+        </div>
+      ) : error ? (
         <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
           {error}
         </div>
-      )}
+      ) : null}
 
       {loading && (
         <div className="flex items-center justify-center py-20">

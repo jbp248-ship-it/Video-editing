@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Settings as SettingsIcon, Save, CheckCircle, ExternalLink } from 'lucide-react';
 
 const KEYS = [
@@ -29,6 +30,7 @@ const KEYS = [
 ];
 
 export default function Settings() {
+  const navigate = useNavigate();
   const [values, setValues] = useState({ ANTHROPIC_API_KEY: '', SEATGEEK_CLIENT_ID: '', TICKETMASTER_API_KEY: '' });
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState(null);
@@ -59,7 +61,10 @@ export default function Settings() {
       });
       if (!res.ok) throw new Error('Failed to save');
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      setTimeout(() => {
+        setSaved(false);
+        navigate('/');
+      }, 1000);
     } catch (err) {
       setError('Could not save settings. Is the server running?');
     }

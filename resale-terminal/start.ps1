@@ -24,6 +24,19 @@ if (-Not (Test-Path ".env")) {
 
 Write-Host ""
 Write-Host "Starting Resale Terminal..." -ForegroundColor Green
-Write-Host "Open http://localhost:5173 in Chrome or Edge" -ForegroundColor Cyan
+Write-Host "The browser will open automatically in 3 seconds." -ForegroundColor Cyan
 Write-Host ""
+
+# Ensure the data directory exists so SQLite can open the database
+if (-Not (Test-Path "data")) {
+    New-Item -ItemType Directory -Path "data" | Out-Null
+    Write-Host "Created data\ directory." -ForegroundColor DarkGray
+}
+
+# Open the browser after a short delay to let the dev server start
+Start-Job -ScriptBlock {
+    Start-Sleep -Seconds 3
+    Start-Process "http://localhost:5173"
+} | Out-Null
+
 npm run dev
