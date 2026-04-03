@@ -21,4 +21,11 @@ export const api = {
   addInventory: (data) => request('/api/inventory', { method: 'POST', body: JSON.stringify(data) }),
   updateInventory: (id, data) => request(`/api/inventory/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteInventory: (id) => request(`/api/inventory/${id}`, { method: 'DELETE' }),
+  getSeatGeekVenue: (id) => request(`/api/seatgeek/venue/${id}`),
+  getTicketmasterVenue: (id) => request(`/api/ticketmaster/venue/${id}`),
+  getSupplyAnalysis: (q, seatgeekEventId) => {
+    const params = new URLSearchParams({ q });
+    if (seatgeekEventId) params.set('seatgeek_event_id', seatgeekEventId);
+    return request(`/api/supply?${params}`);
+  },
 };

@@ -11,6 +11,7 @@ try {
   const { default: ticketmasterRoutes } = await import('./routes/ticketmaster.js');
   const { default: anthropicRoutes } = await import('./routes/anthropic.js');
   const { default: settingsRoutes } = await import('./routes/settings.js');
+  const { default: supplyRoutes } = await import('./routes/supply.js');
 
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
@@ -31,6 +32,7 @@ try {
   app.use('/api/ticketmaster', ticketmasterRoutes);
   app.use('/api/ai', anthropicRoutes);
   app.use('/api/settings', settingsRoutes);
+  app.use('/api/supply', supplyRoutes);
 
   // Production: serve static files and SPA fallback
   if (process.env.NODE_ENV === 'production') {

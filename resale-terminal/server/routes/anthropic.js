@@ -24,6 +24,8 @@ router.post('/recommend', async (req, res) => {
     const seatgeekScore = req.body.seatgeekScore ?? req.body.seatgeek_score;
     const popularity = req.body.popularity ?? req.body.popularity;
     const demandScore = req.body.demandScore ?? req.body.demand_score;
+    const venueCapacity = req.body.venueCapacity ?? req.body.venue_capacity;
+    const ticketsAvailable = req.body.ticketsAvailable ?? req.body.tickets_available ?? listingCount;
 
     if (!eventName) {
       return res.status(400).json({ error: 'eventName is required' });
@@ -43,10 +45,22 @@ router.post('/recommend', async (req, res) => {
       ? (((seatgeekPrice - ticketmasterPrice) / ticketmasterPrice) * 100).toFixed(1)
       : 'N/A';
 
+    // Calculate supply ratio if venue capacity and tickets available are known
+    let supplyRatio = 'N/A';
+    let supplyLevel = 'Unknown';
+    if (venueCapacity && ticketsAvailable) {
+      const ratio = (ticketsAvailable / venueCapacity) * 100;
+      supplyRatio = ratio.toFixed(2) + '%';
+      if (ratio < 2) supplyLevel = 'Low';
+      else if (ratio < 5) supplyLevel = 'Medium';
+      else supplyLevel = 'High';
+    }
+
     const userMessage = `Analyze this event as a RESALE INVESTMENT opportunity:
 
 Event: ${eventName}
 Venue: ${venue || 'N/A'}
+Venue Capacity: ${venueCapacity || 'N/A'}
 Event Date: ${eventDate || 'N/A'}
 Days Until Event: ${daysUntilEvent}
 
@@ -62,6 +76,12 @@ PRIMARY MARKET DATA (Ticketmaster):
 - Face Value (Min): $${ticketmasterPrice || 'N/A'}
 - Face Value (Max): $${ticketmasterMaxPrice || 'N/A'}
 
+SUPPLY vs VENUE CAPACITY:
+- Venue Capacity: ${venueCapacity || 'N/A'} seats
+- Tickets on Resale: ${ticketsAvailable || 'N/A'}
+- Supply Ratio: ${supplyRatio} of capacity on resale market
+- Supply Level: ${supplyLevel}
+
 COMPUTED:
 - Resale vs Face Spread: ${spread}%
 - Demand Score: ${demandScore || 'N/A'}/100`;
@@ -69,17 +89,22 @@ COMPUTED:
     const systemPrompt = `You are a professional ticket resale investment analyst at a hedge fund that trades event tickets. You provide precise, data-driven analysis of ticket resale opportunities.
 
 Your analysis framework:
-1. SUPPLY ANALYSIS: Evaluate listing count relative to typical venue sizes. Under 50 listings = constrained supply. 50-200 = moderate. Over 200 = saturated.
-2. DEMAND SIGNALS: Use popularity score, price spreads, and proximity to event date. High popularity + low supply = strong demand.
-3. VELOCITY ESTIMATION: Based on listing count and days until event. Few listings close to event date = tickets already sold (fast velocity). Many listings close to event = slow velocity (bearish).
+1. VENUE CAPACITY vs SUPPLY: This is the MOST IMPORTANT metric. Compare the number of resale listings to venue capacity.
+   - If a 20,000 seat venue has only 500 listings on resale, that's 2.5% — very low supply relative to capacity = BULLISH (tickets are scarce, holders aren't selling)
+   - If a 5,000 seat venue has 1,000 listings, that's 20% — high supply = BEARISH (lots of sellers, weak demand)
+   - Under 2% of capacity on resale = Low supply = Strong buy signal
+   - 2-5% = Medium supply = Neutral/Watch
+   - Over 5% = High supply = Bearish signal
+2. DEMAND SIGNALS: Use popularity score, price spreads, and proximity to event date. High popularity + low supply ratio = strong demand.
+3. VELOCITY ESTIMATION: Based on listing count relative to venue capacity and days until event. Few listings (low %) close to event date = tickets already sold (fast velocity). Many listings (high %) close to event = slow velocity (bearish).
 4. PRICE SPREAD: If resale floor > face value, there's margin for profit. If resale < face, the market is pricing the event below expectation (bearish).
-5. RISK FACTORS: Event cancellation risk, oversupply risk, price compression near event date.
+5. RISK FACTORS: Event cancellation risk, oversupply risk, price compression near event date. Small venues (<5,000) are higher risk due to lower liquidity.
 
 You MUST respond with ONLY valid JSON in this exact format (no markdown, no code fences):
 {
   "recommendation": "Buy" or "Wait" or "Avoid",
   "confidence": <number 0-100>,
-  "reasoning": "<2-3 sentence investment thesis explaining the supply/demand dynamics and why you recommend this action>",
+  "reasoning": "<2-3 sentence investment thesis explaining the supply/demand dynamics, venue capacity analysis, and why you recommend this action>",
   "metrics": {
     "supplyLevel": "Low" or "Medium" or "High",
     "velocityEstimate": "Fast" or "Moderate" or "Slow",
