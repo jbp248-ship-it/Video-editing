@@ -13,30 +13,21 @@ const NAV_ITEMS = [
     ),
   },
   {
-    id: "market",
-    label: "Market Intel",
+    id: "search",
+    label: "Search",
     icon: (
       <svg className="h-[18px] w-[18px]" viewBox="0 0 20 20" fill="currentColor">
-        <path fillRule="evenodd" d="M4.083 9h1.946c.089-1.546.383-2.97.837-4.118A6.004 6.004 0 004.083 9zM10 2a8 8 0 100 16 8 8 0 000-16zm0 2c-.076 0-.232.032-.465.262-.238.234-.497.623-.737 1.182-.389.907-.673 2.142-.766 3.556h3.936c-.093-1.414-.377-2.649-.766-3.556-.24-.559-.499-.948-.737-1.182C10.232 4.032 10.076 4 10 4zm3.971 5c-.089-1.546-.383-2.97-.837-4.118A6.004 6.004 0 0115.917 9h-1.946zm-2.003 2H8.032c.093 1.414.377 2.649.766 3.556.24.559.499.948.737 1.182.233.23.389.262.465.262.076 0 .232-.032.465-.262.238-.234.498-.623.737-1.182.389-.907.673-2.142.766-3.556zm1.166 4.118c.454-1.147.748-2.572.837-4.118h1.946a6.004 6.004 0 01-2.783 4.118zm-6.268 0C6.412 13.97 6.118 12.546 6.03 11H4.083a6.004 6.004 0 002.783 4.118z" clipRule="evenodd" />
+        <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
       </svg>
     ),
   },
   {
     id: "inventory",
-    label: "Inventory",
+    label: "My Tickets",
     icon: (
       <svg className="h-[18px] w-[18px]" viewBox="0 0 20 20" fill="currentColor">
         <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
         <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
-      </svg>
-    ),
-  },
-  {
-    id: "sales",
-    label: "Sales & P/L",
-    icon: (
-      <svg className="h-[18px] w-[18px]" viewBox="0 0 20 20" fill="currentColor">
-        <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
       </svg>
     ),
   },
@@ -77,7 +68,6 @@ export function Sidebar({ activeTab, onTabChange, alertCount }: SidebarProps) {
       >
         {!collapsed && (
           <div className="flex items-center gap-2.5 min-w-0">
-            {/* Amber ticket icon */}
             <div
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
               style={{ backgroundColor: "#D97706" }}
@@ -98,7 +88,7 @@ export function Sidebar({ activeTab, onTabChange, alertCount }: SidebarProps) {
               className="text-base font-bold tracking-tight truncate"
               style={{ color: "#F5F0EB" }}
             >
-              Ticket<span style={{ color: "#F59E0B" }}>Ops</span>
+              Ticket<span style={{ color: "#F59E0B" }}>Reselling</span>
             </span>
           </div>
         )}
@@ -180,32 +170,28 @@ export function Sidebar({ activeTab, onTabChange, alertCount }: SidebarProps) {
         })}
       </nav>
 
-      {/* Footer — bell + version */}
+      {/* Footer -- bell badge + version */}
       <div
         className="shrink-0 border-t"
         style={{ borderColor: "#4A4539" }}
       >
-        {/* Notification bell */}
+        {/* Notification bell (badge only, not a tab) */}
         <button
-          onClick={() => onTabChange("alerts")}
+          onClick={() => onTabChange("dashboard")}
           className="flex w-full items-center gap-3 py-2.5 text-sm transition-all duration-150 relative"
           style={{
             padding: collapsed ? "10px 0" : "10px 16px",
             justifyContent: collapsed ? "center" : "flex-start",
-            backgroundColor: activeTab === "alerts" ? "rgba(245, 158, 11, 0.12)" : "transparent",
-            color: activeTab === "alerts" ? "#F59E0B" : "#8C8680",
+            backgroundColor: "transparent",
+            color: "#8C8680",
           }}
           onMouseEnter={(e) => {
-            if (activeTab !== "alerts") {
-              e.currentTarget.style.backgroundColor = "rgba(245,240,235,0.07)";
-              e.currentTarget.style.color = "#D4CAC0";
-            }
+            e.currentTarget.style.backgroundColor = "rgba(245,240,235,0.07)";
+            e.currentTarget.style.color = "#D4CAC0";
           }}
           onMouseLeave={(e) => {
-            if (activeTab !== "alerts") {
-              e.currentTarget.style.backgroundColor = "transparent";
-              e.currentTarget.style.color = "#8C8680";
-            }
+            e.currentTarget.style.backgroundColor = "transparent";
+            e.currentTarget.style.color = "#8C8680";
           }}
           title="Alerts"
         >
