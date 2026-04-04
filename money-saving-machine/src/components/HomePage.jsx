@@ -23,10 +23,21 @@ const CustomTreemapContent = ({ x, y, width, height, name, value, index }) => {
   );
 };
 
-export default function HomePage({ analysis, monthlyIncome }) {
+export default function HomePage({ analysis, monthlyIncome, allTransactions = [] }) {
   if (!analysis) return null;
 
   const { categoryBreakdown, monthlyTrend, budgetAnalysis, personality, monthlySpend, totalSpent, monthCount, healthScore } = analysis;
+
+  // Compute excluded transactions (transfers, credit card payments, income)
+  const excludedTransactions = allTransactions.filter(t => t.isTransfer || t.isIncome);
+  const excludedByType = {};
+  excludedTransactions.forEach(t => {
+    const type = t.isIncome ? 'Income' : (t.category || 'Transfers');
+    if (!excludedByType[type]) excludedByType[type] = { count: 0, total: 0 };
+    excludedByType[type].count += 1;
+    excludedByType[type].total += t.amount;
+  });
+  const excludedTypes = Object.entries(excludedByType).sort((a, b) => b[1].total - a[1].total);
 
   const treemapData = categoryBreakdown.slice(0, 12).map(c => ({
     name: c.name,
@@ -37,7 +48,7 @@ export default function HomePage({ analysis, monthlyIncome }) {
   const leftoverPct = monthlyIncome ? ((leftover / monthlyIncome) * 100) : 0;
 
   return (
-    <div style={styles.page}>
+    <div style={styles.page} className="page-fade-in">
       <div style={styles.header}>
         <h1 style={styles.title}>My Financial Picture</h1>
         <p style={styles.subtitle}>{monthCount} months analyzed — {formatCurrency(totalSpent)} total spending</p>
@@ -48,7 +59,7 @@ export default function HomePage({ analysis, monthlyIncome }) {
         <StatCard label="Monthly Income" value={formatCurrency(monthlyIncome)} color="#10b981" />
         <StatCard label="Monthly Spending" value={formatCurrency(monthlySpend)} color="#ef4444" />
         <StatCard label="Monthly Leftover" value={formatCurrency(leftover)} color={leftover >= 0 ? '#10b981' : '#ef4444'} sub={`${leftoverPct.toFixed(1)}% of income`} />
-        <StatCard label="Health Score" value={healthScore} color={healthScore >= 70 ? '#10b981' : healthScore >= 40 ? '#f59e0b' : '#ef4444'} sub="/100" large />
+        <StatCard label="Health Score" value={healthScore} color={healthScore >= 70 ? '#10b981' : healthScore >= 40 ? '#f59e0b' : '#ef4444'} sub="/100" large pulse />
       </div>
 
       {/* Spending Personality */}
@@ -150,13 +161,41 @@ export default function HomePage({ analysis, monthlyIncome }) {
           ))}
         </div>
       </div>
+
+      {/* Excluded from Analysis */}
+      {excludedTransactions.length > 0 && (
+        <div style={styles.card}>
+          <h3 style={styles.cardTitle}>Excluded from Analysis</h3>
+          <p style={{ fontSize: 13, color: '#64748b', marginBottom: 16 }}>
+            These {excludedTransactions.length} transactions ({formatCurrency(excludedTransactions.reduce((s, t) => s + t.amount, 0))} total) were filtered out to give you accurate spending numbers.
+          </p>
+          <div style={styles.excludedList}>
+            {excludedTypes.map(([type, data]) => (
+              <div key={type} style={styles.excludedRow}>
+                <div style={styles.excludedIcon}>
+                  {type === 'Income' ? '💵' : type === 'Transfers' ? '🔄' : type === 'Investment' ? '📈' : '💳'}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={styles.excludedType}>{type}</div>
+                  <div style={styles.excludedCount}>{data.count} transaction{data.count !== 1 ? 's' : ''}</div>
+                </div>
+                <div style={styles.excludedAmount}>{formatCurrency(data.total)}</div>
+              </div>
+            ))}
+          </div>
+          <div style={styles.excludedFooter}>
+            These include transfers between accounts, credit card payments, investment contributions, and income deposits.
+            They are excluded so your spending analysis reflects only actual expenses.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function StatCard({ label, value, color, sub, large }) {
+function StatCard({ label, value, color, sub, large, pulse }) {
   return (
-    <div style={styles.statCard}>
+    <div style={styles.statCard} className={pulse ? 'health-score-pulse' : ''}>
       <div style={styles.statLabel}>{label}</div>
       <div style={{ ...styles.statValue, color, fontSize: large ? 42 : 28 }}>{value}</div>
       {sub && <div style={styles.statSub}>{sub}</div>}
@@ -237,4 +276,17 @@ const styles = {
   merchantCategory: { fontSize: 12, color: '#64748b', width: 120 },
   merchantAmount: { fontSize: 14, fontWeight: 700, color: '#f1f5f9', width: 80, textAlign: 'right' },
   merchantMonthly: { fontSize: 12, color: '#94a3b8', width: 80, textAlign: 'right' },
+  excludedList: { display: 'flex', flexDirection: 'column', gap: 4 },
+  excludedRow: {
+    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+    borderRadius: 8, background: 'rgba(100,116,139,0.06)',
+  },
+  excludedIcon: { fontSize: 18, width: 28, textAlign: 'center' },
+  excludedType: { fontSize: 14, fontWeight: 600, color: '#f1f5f9' },
+  excludedCount: { fontSize: 12, color: '#64748b' },
+  excludedAmount: { fontSize: 14, fontWeight: 700, color: '#94a3b8', width: 90, textAlign: 'right' },
+  excludedFooter: {
+    marginTop: 12, fontSize: 12, color: '#64748b', lineHeight: 1.5,
+    padding: '10px 12px', background: 'rgba(100,116,139,0.06)', borderRadius: 8,
+  },
 };

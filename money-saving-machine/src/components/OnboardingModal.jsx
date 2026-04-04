@@ -7,9 +7,21 @@ export default function OnboardingModal({ onComplete }) {
   const [useDemo, setUseDemo] = useState(false);
   const fileRef = useRef();
 
+  const [fileFormat, setFileFormat] = useState(null);
+
+  const detectFileFormat = (file) => {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (ext === 'xlsx' || ext === 'xls') return 'excel';
+    if (ext === 'csv') return 'csv';
+    return 'unknown';
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files[0];
-    if (file) setCsvFile(file);
+    if (file) {
+      setCsvFile(file);
+      setFileFormat(detectFileFormat(file));
+    }
   };
 
   const handleComplete = () => {
@@ -81,7 +93,10 @@ export default function OnboardingModal({ onComplete }) {
               onDrop={e => {
                 e.preventDefault();
                 const file = e.dataTransfer.files[0];
-                if (file) setCsvFile(file);
+                if (file) {
+                  setCsvFile(file);
+                  setFileFormat(detectFileFormat(file));
+                }
               }}
             >
               {csvFile ? (
@@ -89,18 +104,23 @@ export default function OnboardingModal({ onComplete }) {
                   <span style={{ fontSize: 24 }}>✅</span>
                   <div style={styles.fileName}>{csvFile.name}</div>
                   <div style={styles.fileSize}>{(csvFile.size / 1024).toFixed(1)} KB</div>
+                  {fileFormat && (
+                    <div style={{ fontSize: 12, color: '#10b981', marginTop: 4 }}>
+                      {fileFormat === 'csv' ? 'CSV file detected' : fileFormat === 'excel' ? 'Excel file detected' : 'Unknown format'}
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
                   <span style={{ fontSize: 32 }}>📁</span>
-                  <div style={{ color: '#94a3b8', marginTop: 8 }}>Click or drop your CSV here</div>
+                  <div style={{ color: '#94a3b8', marginTop: 8 }}>Click or drop your CSV or Excel files here</div>
                   <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>Supports Rocket Money, Mint, bank exports</div>
                 </>
               )}
               <input
                 ref={fileRef}
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
                 onChange={handleFileChange}
                 style={{ display: 'none' }}
               />

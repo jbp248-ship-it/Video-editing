@@ -5,7 +5,7 @@ import LeaksPage from './components/LeaksPage';
 import WealthPage from './components/WealthPage';
 import ActionPlanPage from './components/ActionPlanPage';
 import OnboardingModal from './components/OnboardingModal';
-import { parseCSV, analyzeTransactions, detectLeaks, generateActionPlan } from './utils/csvParser';
+import { parseFile, analyzeTransactions, detectLeaks, generateActionPlan } from './utils/csvParser';
 import { generateSampleTransactions } from './data/sampleData';
 
 export default function App() {
@@ -16,10 +16,18 @@ export default function App() {
   const [analysis, setAnalysis] = useState(null);
   const [leaks, setLeaks] = useState([]);
   const [actions, setActions] = useState([]);
+  const [allTransactions, setAllTransactions] = useState([]);
+  const [fileType, setFileType] = useState(null);
 
   const handleOnboardingComplete = useCallback(async ({ monthlyIncome: income, csvFile, useDemo }) => {
     setLoading(true);
     setMonthlyIncome(income);
+
+    // Detect file type
+    if (csvFile) {
+      const ext = csvFile.name.split('.').pop().toLowerCase();
+      setFileType(ext === 'xlsx' || ext === 'xls' ? 'excel' : 'csv');
+    }
 
     try {
       let transactions;
@@ -43,8 +51,10 @@ export default function App() {
           };
         }).filter(t => !isNaN(t.date.getTime()));
       } else {
-        transactions = await parseCSV(csvFile);
+        transactions = await parseFile(csvFile);
       }
+
+      setAllTransactions(transactions);
 
       const analysisResult = analyzeTransactions(transactions, income);
       const leaksResult = detectLeaks(analysisResult);
@@ -65,7 +75,7 @@ export default function App() {
   const renderPage = () => {
     switch (activeTab) {
       case 'home':
-        return <HomePage analysis={analysis} monthlyIncome={monthlyIncome} />;
+        return <HomePage analysis={analysis} monthlyIncome={monthlyIncome} allTransactions={allTransactions} />;
       case 'leaks':
         return <LeaksPage leaks={leaks} analysis={analysis} />;
       case 'wealth':
@@ -73,7 +83,7 @@ export default function App() {
       case 'plan':
         return <ActionPlanPage actions={actions} leaks={leaks} analysis={analysis} monthlyIncome={monthlyIncome} />;
       default:
-        return <HomePage analysis={analysis} monthlyIncome={monthlyIncome} />;
+        return <HomePage analysis={analysis} monthlyIncome={monthlyIncome} allTransactions={allTransactions} />;
     }
   };
 
@@ -108,7 +118,7 @@ export default function App() {
         healthScore={analysis?.healthScore}
         hasData={!!analysis}
       />
-      <main style={{ marginLeft: 260, flex: 1, minHeight: '100vh' }}>
+      <main className="page-fade-in" style={{ marginLeft: 260, flex: 1, minHeight: '100vh' }}>
         {renderPage()}
       </main>
     </div>
