@@ -6,9 +6,15 @@ export function parseCSV(file) {
       header: true,
       skipEmptyLines: true,
       complete: (results) => {
+        // Log first row's columns to help debug CSV format
+        if (results.data.length > 0) {
+          console.log('CSV columns detected:', Object.keys(results.data[0]));
+          console.log('Sample row:', results.data[0]);
+        }
         const transactions = results.data
           .map(row => normalizeTransaction(row))
           .filter(t => t !== null);
+        console.log(`Parsed ${transactions.length} transactions. Income: ${transactions.filter(t=>t.isIncome).length}, Transfers: ${transactions.filter(t=>t.isTransfer).length}, Expenses: ${transactions.filter(t=>!t.isIncome && !t.isTransfer).length}`);
         resolve(transactions);
       },
       error: (error) => reject(error)
@@ -28,13 +34,37 @@ function normalizeTransaction(row) {
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) return null;
 
+  const descLower = description.toLowerCase();
+  const catLower = category.toLowerCase();
+
+  const isIncome = amount > 0 && (
+    catLower.includes('income') || catLower.includes('payroll') ||
+    catLower.includes('salary') || descLower.includes('direct deposit') ||
+    descLower.includes('payroll')
+  );
+
+  // Detect non-spending transactions (transfers, payments to credit cards, loans)
+  const isTransfer =
+    catLower.includes('transfer') || catLower.includes('credit card payment') ||
+    catLower.includes('payment') && (descLower.includes('card') || descLower.includes('credit')) ||
+    catLower === 'investment' || catLower === 'investments' ||
+    descLower.includes('credit card payment') || descLower.includes('card payment') ||
+    descLower.includes('payment to') || descLower.includes('pay credit') ||
+    descLower.includes('autopay') && descLower.includes('card') ||
+    descLower.includes('transfer to') || descLower.includes('transfer from') ||
+    descLower.includes('loan payment') || descLower.includes('mortgage payment') ||
+    descLower.includes('ira contribution') || descLower.includes('401k') ||
+    descLower.includes('investment') || descLower.includes('brokerage') ||
+    descLower.includes('savings transfer') || descLower.includes('zelle') && amount > 500;
+
   return {
     date,
     month: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
     description: description.trim(),
     category: normalizeCategory(category.trim()),
     amount: Math.abs(amount),
-    isIncome: amount > 0 && (category.toLowerCase().includes('income') || category.toLowerCase().includes('payroll')),
+    isIncome,
+    isTransfer,
     isRecurring: false,
     merchant: extractMerchant(description),
     raw: row
@@ -89,13 +119,36 @@ function normalizeCategory(cat) {
     'donations': 'Gifts & Donations',
     'income': 'Income',
     'payroll': 'Income',
+    'salary': 'Income',
     'transfer': 'Transfers',
+    'credit card payment': 'Transfers',
+    'credit card': 'Transfers',
+    'payment': 'Transfers',
+    'investment': 'Transfers',
+    'investments': 'Transfers',
+    'loan': 'Debt Payments',
+    'loans': 'Debt Payments',
+    'fees': 'Fees & Charges',
+    'fees & charges': 'Fees & Charges',
+    'atm': 'Cash & ATM',
+    'cash': 'Cash & ATM',
+    'clothing': 'Shopping',
+    'electronics': 'Shopping',
+    'home': 'Home',
+    'home improvement': 'Home',
+    'phone': 'Bills & Utilities',
+    'internet': 'Bills & Utilities',
+    'cable': 'Bills & Utilities',
+    'electric': 'Bills & Utilities',
+    'water': 'Bills & Utilities',
+    'mobile phone': 'Bills & Utilities',
   };
   return map[cat.toLowerCase()] || cat;
 }
 
 export function analyzeTransactions(transactions, monthlyIncome) {
-  const expenses = transactions.filter(t => !t.isIncome);
+  const expenses = transactions.filter(t => !t.isIncome && !t.isTransfer);
+  const transfers = transactions.filter(t => t.isTransfer);
   const totalSpent = expenses.reduce((sum, t) => sum + t.amount, 0);
   const months = [...new Set(expenses.map(t => t.month))];
   const monthCount = Math.max(months.length, 1);

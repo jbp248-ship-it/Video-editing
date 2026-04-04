@@ -37,6 +37,7 @@ export default function App() {
             category: row.Category,
             amount: Math.abs(amount),
             isIncome: amount > 0 && (row.Category === 'Income'),
+            isTransfer: row.Category === 'Transfers' || row.Category === 'Investment',
             merchant: row.Description,
             raw: row,
           };
