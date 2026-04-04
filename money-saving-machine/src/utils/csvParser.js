@@ -99,12 +99,15 @@ function getColumns(row, format) {
   return {
     date: get('Date', 'Transaction Date', 'Posted Date', 'Posting Date', 'date'),
     description: get('Description', 'Name', 'Merchant', 'Original Description', 'Payee', 'description', 'DESCRIPTION'),
-    category: get('Category', 'category', 'Type', 'Transaction Type'),
-    amount: get('Amount', 'amount', 'Debit', 'AMOUNT'),
+    category: get('Category', 'category'),
+    amount: get('Amount', 'amount', 'AMOUNT'),
     credit: get('Credit', 'credit'),
     debit: get('Debit', 'debit'),
     type: get('Transaction Type', 'Type', 'Details', 'type'),
     accountName: get('Account Name', 'Account', 'account name'),
+    // Rocket Money specific
+    status: get('Status', 'status'),
+    notes: get('Notes', 'Note', 'Memo', 'memo'),
   };
 }
 
@@ -121,36 +124,70 @@ function normalizeTransaction(row, format) {
   if (!description) return null;
 
   // Parse amount — handle multiple conventions
+  // Key insight: In most CSVs, NEGATIVE = money out (expense), POSITIVE = money in (income/refund)
+  // But some banks flip this. We detect and handle both.
   let amount;
+  let isDebit; // true = money leaving your account
+
   if (cols.debit && cols.credit) {
     // Separate debit/credit columns (Chase, BoA)
     const debit = parseFloat(String(cols.debit).replace(/[$,()]/g, '')) || 0;
     const credit = parseFloat(String(cols.credit).replace(/[$,()]/g, '')) || 0;
-    amount = debit > 0 ? -debit : credit;
+    amount = debit > 0 ? debit : credit;
+    isDebit = debit > 0;
   } else {
-    amount = parseFloat(String(cols.amount).replace(/[$,()]/g, ''));
-    // Handle parenthetical negatives: (50.00) = -50
-    if (String(cols.amount).includes('(')) amount = -Math.abs(amount);
+    const rawAmount = String(cols.amount);
+    amount = parseFloat(rawAmount.replace(/[$,()]/g, ''));
+    if (rawAmount.includes('(')) amount = Math.abs(amount); // parenthetical = expense
+    if (isNaN(amount)) return null;
+
+    // Determine direction: negative = expense in most formats
+    // But in Rocket Money, expenses are positive and income is also positive with different category
+    const typeLower = (cols.type || '').toLowerCase();
+    if (typeLower === 'debit' || typeLower === 'sale' || typeLower === 'purchase') {
+      isDebit = true;
+      amount = Math.abs(amount);
+    } else if (typeLower === 'credit' || typeLower === 'deposit' || typeLower === 'refund' || typeLower === 'return') {
+      isDebit = false;
+      amount = Math.abs(amount);
+    } else if (amount < 0) {
+      // Standard convention: negative = money out
+      isDebit = true;
+      amount = Math.abs(amount);
+    } else {
+      // Positive amount — could be income OR expense depending on format
+      // Check category/description to decide
+      const catLower = (cols.category || '').toLowerCase();
+      const incomeHints = ['income', 'payroll', 'salary', 'deposit', 'direct deposit', 'refund', 'return', 'credit', 'reimbursement', 'cashback', 'interest'];
+      const isLikelyIncome = incomeHints.some(h => catLower.includes(h) || description.toLowerCase().includes(h));
+      isDebit = !isLikelyIncome;
+    }
   }
-  if (isNaN(amount)) return null;
+  if (isNaN(amount) || amount === 0) return null;
 
   const descLower = description.toLowerCase();
   const catLower = (cols.category || '').toLowerCase();
   const typeLower = (cols.type || '').toLowerCase();
 
-  const isIncome = detectIncome(amount, descLower, catLower, typeLower);
-  const isTransfer = !isIncome && detectTransfer(amount, descLower, catLower, typeLower, cols.accountName);
-  const isRefund = !isIncome && !isTransfer && amount > 0 && !catLower.includes('income');
+  // Income: money coming IN (paycheck, deposits, refunds from work)
+  const isIncome = !isDebit || detectIncome(descLower, catLower, typeLower);
+  // Transfer: money moving between YOUR accounts (not real spending)
+  const isTransfer = !isIncome && detectTransfer(descLower, catLower, typeLower, cols.accountName);
+  // Refund: money coming back from a purchase
+  const isRefund = !isIncome && !isTransfer && !isDebit;
+
+  console.log(`[${isIncome ? 'INCOME' : isTransfer ? 'XFER' : isRefund ? 'REFUND' : 'EXPENSE'}] $${amount.toFixed(2)} — ${description} (cat: ${cols.category}, type: ${cols.type})`);
 
   return {
     date,
     month: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
     description: description,
     category: normalizeCategory(cols.category || 'Uncategorized'),
-    amount: Math.abs(amount),
+    amount,
     isIncome,
     isTransfer,
     isRefund,
+    isDebit,
     isRecurring: false,
     merchant: extractMerchant(description),
     raw: row,
@@ -158,14 +195,24 @@ function normalizeTransaction(row, format) {
 }
 
 // ── Income detection ──────────────────────────────────────────────
-function detectIncome(amount, desc, cat, type) {
-  if (amount <= 0) return false; // income is positive (money in)
-  const incomeKeywords = ['income', 'payroll', 'salary', 'direct deposit', 'employer', 'paycheck', 'wage', 'commission', 'dividend', 'interest earned'];
-  return incomeKeywords.some(k => desc.includes(k) || cat.includes(k));
+function detectIncome(desc, cat, type) {
+  const incomeKeywords = [
+    'income', 'payroll', 'salary', 'direct deposit', 'employer',
+    'paycheck', 'wage', 'commission', 'dividend', 'interest earned',
+    'tax refund', 'reimbursement', 'deposit', 'cashback', 'cash back',
+    'rewards', 'venmo from', 'zelle from',
+  ];
+  const incomeCategories = ['income', 'payroll', 'salary', 'deposit', 'reimbursement'];
+  const incomeTypes = ['credit', 'deposit', 'refund'];
+
+  if (incomeCategories.some(k => cat === k || cat.includes(k))) return true;
+  if (incomeTypes.some(k => type === k)) return true;
+  if (incomeKeywords.some(k => desc.includes(k))) return true;
+  return false;
 }
 
 // ── Transfer detection (the critical fix) ─────────────────────────
-function detectTransfer(amount, desc, cat, type, accountName) {
+function detectTransfer(desc, cat, type, accountName) {
   // Category-based (most reliable for Rocket Money / Mint)
   const transferCategories = [
     'transfer', 'credit card payment', 'credit card', 'payment',
